@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f6b67">
+<title>Inventário Escolar</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f6b67'/%3E%3Cpath d='M9 22V11h14v11M6 22h20M13 15h6' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32" width="26" height="26"><path d="M9 22V11h14v11M6 22h20M13 15h6" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg></span>
+      <div class="brand-t"><b>Inventário Escolar</b><span id="escola-nome" class="muted">Sem nome da escola</span></div>
+    </div>
+    <div class="top-r">
+      <span class="pill" id="pill-backup" hidden></span>
+      <a class="btn ghost" href="ajuda.html" target="_blank" rel="noopener">Instruções</a>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" aria-label="Seções">
+    <button data-v="painel" class="on"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6V4h-6zM4 20h6v-3H4z"/></svg><span>Painel</span></button>
+    <button data-v="cadastrar"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Cadastrar</span></button>
+    <button data-v="equip"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Equipamentos</span></button>
+    <button data-v="conferir"><svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 7"/></svg><span>Conferir</span><i class="dot" id="dot-casos" hidden></i></button>
+    <button data-v="importar"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg><span>Importar</span></button>
+    <button data-v="mais"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg><span>Mais</span></button>
+  </nav>
+
+  <main id="main">
+    <section data-view="painel" id="v-painel"></section>
+    <section data-view="cadastrar" id="v-cadastrar" hidden></section>
+    <section data-view="equip" id="v-equip" hidden></section>
+    <section data-view="conferir" id="v-conferir" hidden></section>
+    <section data-view="importar" id="v-importar" hidden></section>
+    <section data-view="mais" id="v-mais" hidden></section>
+  </main>
+
+  <p class="privacy muted">Seus dados ficam só neste aparelho, dentro do navegador. Nada é enviado para a internet. Faça backup com frequência na aba Mais.</p>
+</div>
+
+<dialog id="dlg"><div class="dlg-in" id="dlg-in"></div></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<div class="scan" id="scan" hidden role="dialog" aria-modal="true" aria-label="Leitor de código de barras">
+  <video id="video" playsinline muted></video>
+  <div class="scan-bar"><span id="scan-msg">Aponte a câmera para o código de barras da etiqueta.</span><button type="button" class="btn pri" id="scan-close">Fechar</button></div>
+</div>
+
+<script src="xlsx.full.min.js"></script>
+<script>if (!window.XLSX) { document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>'); }</script>
+<script src="core.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>

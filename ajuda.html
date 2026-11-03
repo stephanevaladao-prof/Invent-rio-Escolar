@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f6b67">
+<title>Instruções – Inventário Escolar</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .doc{display:flex;flex-direction:column;gap:14px}
+  .doc h2{font-size:1.2rem}
+  .doc ul,.doc ol{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:6px}
+  .doc code,.kbd{background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:.88em}
+  .toc{display:flex;flex-wrap:wrap;gap:8px}
+  .toc a{background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:6px 12px;color:var(--fg);text-decoration:none;font-size:.9rem}
+  .toc a:hover{border-color:var(--brand)}
+  details{border-top:1px solid var(--line);padding-top:10px}
+  details summary{cursor:pointer;font-weight:600}
+  details p{margin-top:6px;color:var(--muted)}
+  .shell{padding-bottom:40px}
+  a{color:var(--brand)}
+</style>
+</head>
+<body>
+<div class="shell doc">
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32" width="26" height="26"><path d="M9 22V11h14v11M6 22h20M13 15h6" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg></span>
+      <div class="brand-t"><b>Inventário Escolar</b><span class="muted">Instruções de uso</span></div>
+    </div>
+    <div class="top-r"><a class="btn pri" href="index.html">Abrir o aplicativo</a></div>
+  </header>
+
+  <h1>Como usar</h1>
+  <p class="muted">Um caderno digital para cadastrar e conferir os equipamentos da sua escola (Chromebooks, notebooks, tablets…), comparando com a lista do sistema da Secretaria.</p>
+
+  <nav class="toc" aria-label="Índice">
+    <a href="#o-que">O que é</a>
+    <a href="#privacidade">Seus dados</a>
+    <a href="#comecar">Primeiros passos</a>
+    <a href="#cadastrar">Cadastrar</a>
+    <a href="#conferir">Conferir</a>
+    <a href="#planilha">Usar minha planilha</a>
+    <a href="#backup">Backup e outros aparelhos</a>
+    <a href="#exportar">Exportar</a>
+    <a href="#duvidas">Dúvidas</a>
+  </nav>
+
+  <section class="card" id="o-que">
+    <h2>O que é</h2>
+    <p>Você digita (ou lê pela câmera) o número de série de cada equipamento e diz onde ele está: carrinho, número do computador, defeitos. O aplicativo compara na hora com a lista do sistema e avisa quando algo não bate: número digitado errado, equipamento que está em outro local, item que não aparece no sistema.</p>
+    <p>No fim, você exporta uma planilha com tudo e uma aba pronta com o que precisa ser <b>atualizado no sistema</b>.</p>
+  </section>
+
+  <section class="card" id="privacidade">
+    <h2>Onde ficam os seus dados</h2>
+    <div class="note n-info"><b>Tudo fica só no seu aparelho.</b><p>Os dados ficam guardados dentro do navegador, neste computador, tablet ou celular. Nada é enviado para a internet e não existe login. Quem abrir o mesmo link em outro aparelho vê o aplicativo vazio.</p></div>
+    <div class="note n-warn"><b>Por isso, faça backup.</b><p>Se você limpar os dados do navegador, trocar de aparelho ou usar uma janela anônima, os dados somem. Na aba <b>Mais</b>, use <b>Baixar backup</b> com frequência. O aplicativo avisa quando faz tempo.</p></div>
+  </section>
+
+  <section class="card" id="comecar">
+    <h2>Primeiros passos</h2>
+    <div class="steps">
+      <div class="step"><div><b>Importe a lista do sistema</b><span class="muted">Aba <b>Importar</b> → “Lista do sistema”. Escolha o arquivo de exportação (.xlsx ou .csv). O aplicativo reconhece as colunas sozinho; confira e confirme. Se a lista tiver monitores, projetores etc., deixe marcadas só as categorias de computadores.</span></div></div>
+      <div class="step"><div><b>Dê um nome à escola</b><span class="muted">Aba <b>Mais</b> → Escola. O nome aparece no topo e nas planilhas exportadas.</span></div></div>
+      <div class="step"><div><b>Crie os carrinhos ou locais</b><span class="muted">Você pode criar na hora, ao cadastrar (“+ Novo carrinho…”). Na aba <b>Mais</b> → Carrinhos, associe cada carrinho ao nome do local no sistema, para o aplicativo saber quando um equipamento está em local diferente.</span></div></div>
+      <div class="step"><div><b>(Opcional) Regras de modelo</b><span class="muted">Se os números de série começam sempre do mesmo jeito para cada modelo, cadastre isso em <b>Mais</b> → Regras de modelo. O modelo passa a ser preenchido sozinho. O aplicativo já sugere regras a partir da lista do sistema.</span></div></div>
+      <div class="step"><div><b>Cadastre os equipamentos</b><span class="muted">Veja a próxima seção.</span></div></div>
+    </div>
+  </section>
+
+  <section class="card" id="cadastrar">
+    <h2>Cadastrar um equipamento</h2>
+    <ol>
+      <li>Aba <b>Cadastrar</b>. Digite o N/S, ou toque no botão da câmera para ler o código de barras (funciona em navegadores que oferecem leitura de código; se o botão não aparecer, digite).</li>
+      <li>Logo abaixo aparece o resultado da conferência: <b>está no sistema</b>, <b>provável erro de digitação</b> (com o N/S parecido sugerido), <b>não encontrado</b> ou <b>já cadastrado</b>.</li>
+      <li>Escolha o carrinho ou local. O número do computador é sugerido (o próximo livre), mas você pode mudar.</li>
+      <li>Patrimônio e modelo são opcionais; se o sistema souber, o aplicativo preenche.</li>
+      <li>Em <b>Defeitos e observações</b>, marque o que for preciso (tela quebrada, não liga, teclado…) e escreva o que quiser. Equipamentos com defeito grave contam como “fora de uso”.</li>
+      <li><b>Salvar e próximo</b> deixa o formulário pronto para o seguinte.</li>
+    </ol>
+    <p class="muted">Dica: confira o N/S na etiqueta do aparelho. Letras e zeros parecidos (O/0, I/1, S/5) são os erros mais comuns.</p>
+  </section>
+
+  <section class="card" id="conferir">
+    <h2>Conferir com o sistema</h2>
+    <p>A aba <b>Conferir</b> lista tudo que merece atenção. Cada caso tem um tipo:</p>
+    <ul>
+      <li><b>Provável erro de digitação</b>: seu N/S é muito parecido com um do sistema que ninguém cadastrou. Confira a etiqueta.</li>
+      <li><b>Não encontrado no sistema</b>: o equipamento existe, mas o sistema não conhece. É candidato a ser cadastrado lá.</li>
+      <li><b>Local diferente</b>: o sistema diz que está em outro lugar.</li>
+      <li><b>A procurar</b>: está no sistema, em local da sua escola, mas você não cadastrou.</li>
+      <li><b>Registro único / duplicado</b>: o mesmo número aparece em mais de um lugar.</li>
+    </ul>
+    <p>Quando resolver um caso (achou o equipamento, corrigiu o número…), marque como <b>resolvido</b> e, se quiser, escreva uma observação. Ela sai na planilha exportada.</p>
+    <div class="note n-info"><b>N/S incompleto no sistema</b><p>Alguns sistemas guardam o N/S sem a última letra. O aplicativo entende isso como o mesmo equipamento e só avisa.</p></div>
+  </section>
+
+  <section class="card" id="planilha">
+    <h2>Já tenho uma planilha minha</h2>
+    <p>Sem problema: não precisa redigitar.</p>
+    <ol>
+      <li>Aba <b>Importar</b> → “Minha planilha”. Escolha o arquivo (.xlsx, .xls ou .csv).</li>
+      <li>O aplicativo procura a linha de cabeçalho e sugere qual coluna é N/S, carrinho, número, modelo, patrimônio, defeitos e observações. <b>Corrija o que estiver errado</b> nas listas de escolha.</li>
+      <li>Se a planilha tiver uma aba para cada carrinho, marque “usar o nome da aba como carrinho”.</li>
+      <li>Importe. Os equipamentos aparecem em <b>Equipamentos</b> já conferidos com o sistema. Importar de novo atualiza os que já existem (pelo N/S), sem duplicar.</li>
+    </ol>
+    <p class="muted">Só a coluna do número de série é obrigatória. As outras podem ficar em “não usar”.</p>
+  </section>
+
+  <section class="card" id="backup">
+    <h2>Backup e uso em outros aparelhos</h2>
+    <p>Como os dados ficam em cada aparelho, o caminho para levar de um para outro é o arquivo de backup:</p>
+    <ol>
+      <li>No aparelho de origem: <b>Mais</b> → <b>Baixar backup</b>. Gera um arquivo <code>.json</code>.</li>
+      <li>Envie para você mesma (e-mail, WhatsApp, pen drive).</li>
+      <li>No outro aparelho: abra o aplicativo → <b>Mais</b> → <b>Restaurar backup</b> e escolha o arquivo.</li>
+    </ol>
+    <p>Ao restaurar, o aplicativo <b>junta</b> o backup com o que já existe no aparelho: para o mesmo N/S, vale o registro mais recente. Nada é apagado. Assim dá para cadastrar no tablet e no computador e depois reunir tudo.</p>
+    <div class="note n-ok"><b>Mudando de escola</b><p>Baixe o backup, abra o aplicativo na escola nova, importe a lista do sistema de lá e restaure só o que quiser. Se preferir começar do zero, use <b>Mais</b> → <b>Apagar todos os dados</b>.</p></div>
+  </section>
+
+  <section class="card" id="exportar">
+    <h2>Exportar planilha</h2>
+    <p>Em <b>Mais</b> → <b>Exportar para planilha</b> → <b>Baixar planilha</b> você baixa um arquivo Excel com as abas:</p>
+    <ul>
+      <li><b>Resumo</b>: totais, usáveis, fora de uso, por carrinho.</li>
+      <li><b>Equipamentos</b>: tudo que foi cadastrado.</li>
+      <li><b>Conferência</b>: resultado da comparação com o sistema.</li>
+      <li><b>Atualizar no sistema</b>: o que precisa ser ajustado lá (cadastrar, corrigir local, corrigir N/S).</li>
+      <li><b>Atenção</b>: casos em aberto.</li>
+    </ul>
+    <p class="muted">A planilha contém os dados que você cadastrou. Cuidado ao compartilhá-la se tiver nomes de professores ou outras informações pessoais.</p>
+  </section>
+
+  <section class="card" id="duvidas">
+    <h2>Dúvidas frequentes</h2>
+    <details><summary>Abri em outro aparelho e está vazio.</summary><p>É normal: cada aparelho guarda seus próprios dados. Use backup e restauração (seção “Backup e outros aparelhos”).</p></details>
+    <details><summary>Perdi tudo depois de limpar o navegador.</summary><p>Limpar “dados do site” apaga o cadastro. Se tiver um backup, restaure em Mais → Restaurar backup. Por isso baixe backups com frequência.</p></details>
+    <details><summary>A importação não reconheceu as colunas.</summary><p>Escolha manualmente cada coluna nas listas. Se a linha de cabeçalho estiver errada, ajuste a linha indicada. O arquivo precisa ter pelo menos uma coluna de número de série.</p></details>
+    <details><summary>A câmera não aparece / não lê o código.</summary><p>A leitura por câmera depende do navegador (funciona bem no Chrome em Android e computador; em alguns iPhones não está disponível). Digite o N/S normalmente. Se o navegador pedir permissão da câmera, é preciso permitir.</p></details>
+    <details><summary>O sistema da Secretaria muda o N/S ou corta a última letra.</summary><p>O aplicativo trata N/S que só diferem por 1 a 3 caracteres no final como o mesmo equipamento e mostra “sistema com N/S incompleto”. Confira na etiqueta qual é o correto.</p></details>
+    <details><summary>Posso usar em vários professores ao mesmo tempo?</summary><p>Cada um usa no seu aparelho. Para reunir os dados, cada pessoa envia o backup e alguém restaura todos os arquivos no mesmo aparelho (um de cada vez; eles se juntam). Não há sincronização automática.</p></details>
+    <details><summary>Preciso de internet?</summary><p>Só para abrir a página pela primeira vez. Depois, o cadastro funciona sem enviar nada para a internet.</p></details>
+  </section>
+
+  <p class="privacy muted">Inventário Escolar · dados somente locais · <a href="index.html">voltar ao aplicativo</a></p>
+</div>
+</body>
+</html>
