@@ -423,10 +423,13 @@
         if (!abas.length) { toast('Não achei dados nessa planilha.'); return; }
         var campos = modo === 'sistema' ? I.CAMPOS_SISTEMA : I.CAMPOS_MINHA;
         // aba inicial: a que tem mais linhas
-        var principal = abas.slice().sort(function (a, b) { return b.n - a.n; })[0];
+        var AUX = /^(sistema|resumo|diverg|confer|comodato|painel|legenda|instru|lista do sistema|export)/i;
+        abas.forEach(function (a) { var m = I.sugerirMapa(a.rows, a.hdrIdx, modo === 'sistema' ? I.CAMPOS_SISTEMA : I.CAMPOS_MINHA); a.temSn = !!m && m.sn >= 0; a.aux = AUX.test(a.nome.trim()) && !/equip|invent/i.test(a.nome); });
+        var candidatas = abas.filter(function (a) { return a.temSn && !a.aux; });
+        var principal = (candidatas.length ? candidatas : abas).slice().sort(function (a, b) { return b.n - a.n; })[0];
         imp = { modo: modo, arquivo: arquivo.name, abas: abas, campos: campos, etapa: 1, ativa: principal.nome, marcadas: {}, mapa: null,
           categorias: null, abaComoCarrinho: false, atualizar: true };
-        if (modo === 'minha') abas.forEach(function (a) { imp.marcadas[a.nome] = a.n >= 3; });
+        if (modo === 'minha') abas.forEach(function (a) { imp.marcadas[a.nome] = a.n >= 3 && a.temSn && !a.aux; });
         recalcMapa(true);
         render();
       } catch (e) { toast('Não consegui ler essa planilha: ' + e.message); }
@@ -460,8 +463,9 @@
           imp.abas.map(function (x) { return h('option', { value: x.nome, selected: x.nome === imp.ativa }, x.nome + ' (' + x.n + ' linhas)'); }))));
       } else {
         add(card, h('div', null, h('div', { class: 'lbl muted', style: 'font-size:.82rem;font-weight:600;margin-bottom:6px' }, 'Quais abas importar'),
+          h('p', { class: 'muted', style: 'font-size:.85rem;margin-bottom:8px' }, 'Marque só as abas com os SEUS equipamentos. Abas de resumo, sistema ou conferência não devem ser marcadas, senão os equipamentos aparecem repetidos.'),
           h('div', { class: 'defs' }, imp.abas.map(function (x) {
-            return h('label', null, h('input', { type: 'checkbox', checked: !!imp.marcadas[x.nome], onchange: function () { imp.marcadas[x.nome] = this.checked; if (this.checked && !imp.ativa) { imp.ativa = x.nome; } } }), x.nome + ' (' + x.n + ')');
+            return h('label', null, h('input', { type: 'checkbox', checked: !!imp.marcadas[x.nome], onchange: function () { imp.marcadas[x.nome] = this.checked; if (this.checked && !imp.ativa) { imp.ativa = x.nome; } } }), x.nome + ' (' + x.n + ')' + (x.aux ? ' – parece ser aba de apoio' : (x.temSn ? '' : ' – sem coluna de N/S')));
           })),
           imp.abas.length > 1 ? h('label', { class: 'f', style: 'margin-top:10px' }, 'Usar esta aba para identificar as colunas', h('select', { onchange: function () { imp.ativa = this.value; recalcMapa(false); render(); } },
             imp.abas.map(function (x) { return h('option', { value: x.nome, selected: x.nome === imp.ativa }, x.nome); }))) : null));
