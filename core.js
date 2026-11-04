@@ -71,10 +71,19 @@
       try { return JSON.parse(localStorage.getItem(DB)); } catch (e) { return null; }
     }).then(function (d) {
       S = d || vazio();
+      migrar();
       INV.S = S;
       invalidar();
       if (navigator.storage && navigator.storage.persist) { try { navigator.storage.persist(); } catch (e) { /* ignora */ } }
       return S;
+    });
+  }
+  /* versões antigas guardavam um só local do sistema por carrinho */
+  function migrar() {
+    (S.carrinhos || []).forEach(function (c) {
+      if (!c.locaisSis) c.locaisSis = c.localSistema ? [c.localSistema] : [];
+      delete c.localSistema;
+      if (!c.tipo) c.tipo = 'carrinho';
     });
   }
   var timer = null;
@@ -130,11 +139,12 @@
 
   /* ---------- carrinhos, modelos, estado ---------- */
   function carrinho(id) { return S.carrinhos.filter(function (c) { return c.id === id; })[0] || null; }
-  function carrinhoPorNome(nome, criar) {
+  function locaisDe(c) { return (c && c.locaisSis) || []; }
+  function carrinhoPorNome(nome, criar, tipo) {
     var n = semAcento(nome);
     var c = S.carrinhos.filter(function (x) { return semAcento(x.nome) === n; })[0];
     if (!c && criar && txt(nome)) {
-      c = { id: uid(), nome: txt(nome), localSistema: '' };
+      c = { id: uid(), nome: txt(nome), tipo: tipo || 'carrinho', locaisSis: [] };
       S.carrinhos.push(c);
     }
     return c || null;
@@ -177,21 +187,54 @@
     });
     return out;
   }
-  function sugerirLocal(nomeCarrinho) {
-    var tk = tokens(nomeCarrinho), melhor = null;
+  /* Locais do sistema que combinam com um carrinho (um só) ou com um local fixo (todos os que combinam). */
+  function sugerirLocaisSis(c) {
+    var tk = tokens(c.nome), pts = [], melhor = 0;
     locaisDoSistema().forEach(function (l) {
       var lt = tokens(l.nome), score = 0;
       tk.forEach(function (t) { if (lt.indexOf(t) >= 0) score += t.charAt(0) === '#' ? 5 : 1; });
-      if (score > 0 && (!melhor || score > melhor.score)) melhor = { nome: l.nome, score: score };
+      if (score > 0) { pts.push({ nome: l.nome, score: score }); if (score > melhor) melhor = score; }
     });
-    return melhor ? melhor.nome : '';
+    if (!melhor) return [];
+    var ok = pts.filter(function (x) { return x.score === melhor; }).map(function (x) { return x.nome; });
+    if ((c.tipo || 'carrinho') === 'carrinho') return ok.slice(0, 1);
+    return melhor >= 2 || tk.length === 1 ? ok : [];
   }
+  function sugerirLocal(nome) { return sugerirLocaisSis({ nome: nome, tipo: 'carrinho' })[0] || ''; }
   function sugerirLocaisDosCarrinhos() {
     var feitos = 0;
     S.carrinhos.forEach(function (c) {
-      if (!c.localSistema) { var s = sugerirLocal(c.nome); if (s) { c.localSistema = s; feitos++; } }
+      if (!locaisDe(c).length) { var s = sugerirLocaisSis(c); if (s.length) { c.locaisSis = s; feitos++; } }
     });
     return feitos;
+  }
+  function mapaLocais() {
+    var m = {};
+    S.carrinhos.forEach(function (c) { locaisDe(c).forEach(function (l) { if (!m[l]) m[l] = c; }); });
+    return m;
+  }
+  /* Locais do sistema que ainda não estão ligados a nenhum carrinho ou local seu,
+     agrupados pelo nome do lugar (o que vem depois do " - "). */
+  function sugerirLocaisNovos() {
+    var m = mapaLocais(), grupos = {}, ordem = [];
+    locaisDoSistema().forEach(function (l) {
+      if (m[l.nome]) return;
+      var nome = l.nome.trim(), cart = /^carrinho/i.test(nome), chave, exib;
+      var k = nome.lastIndexOf('-');
+      if (!cart && k > 0 && k < nome.length - 1) { exib = nome.slice(k + 1).trim(); }
+      else exib = nome.replace(/\s+/g, ' ');
+      chave = semAcento(exib).replace(/[^a-z0-9]+/g, ' ').trim() + (cart ? '|c' : '');
+      if (!grupos[chave]) { grupos[chave] = { nome: exib, tipo: cart ? 'carrinho' : 'local', locais: [], n: 0 }; ordem.push(chave); }
+      grupos[chave].locais.push(l.nome); grupos[chave].n += l.n;
+    });
+    return ordem.map(function (k) { return grupos[k]; });
+  }
+  function criarLocal(nome, tipo, locais) {
+    var c = carrinhoPorNome(nome, true, tipo);
+    if (!c.tipo) c.tipo = tipo || 'carrinho';
+    locais.forEach(function (l) { if (locaisDe(c).indexOf(l) < 0) c.locaisSis.push(l); });
+    invalidarCasos(); save();
+    return c;
   }
   function sugerirRegrasModelo() {
     var grupos = {};
@@ -207,9 +250,26 @@
     });
   }
 
+  /* ---------- tipos de equipamento ---------- */
+  var TIPOS_PADRAO = ['Chromebook', 'Desktop', 'Monitor', 'Óculos Realidade Virtual', 'Assistente Virtual'];
+  function tipos() {
+    var l = TIPOS_PADRAO.slice();
+    function add(t) { t = txt(t); if (t && t !== 'Outro' && l.indexOf(t) < 0) l.push(t); }
+    S.sistema.itens.forEach(function (it) { add(it.categoria); });
+    S.equipamentos.forEach(function (e) { add(e.tipo); });
+    l.push('Outro');
+    return l;
+  }
+  function tipoDe(e) {
+    if (e.tipo) return e.tipo;
+    var p = conferir().porEq[e.id];
+    return p && p.tipo ? p.tipo : 'Chromebook';
+  }
+
   /* ---------- equipamentos ---------- */
   function achaEq(sn) {
     var n = norm(sn);
+    if (!n) return [];
     return S.equipamentos.filter(function (e) { return norm(e.sn) === n; });
   }
   function salvarEq(dados) {
@@ -218,7 +278,7 @@
       e = S.equipamentos.filter(function (x) { return x.id === dados.id; })[0];
     }
     if (!e) { e = { id: uid(), criado: agora }; S.equipamentos.push(e); }
-    ['sn', 'patrimonio', 'carrinho', 'numero', 'modelo', 'obs'].forEach(function (k) { if (k in dados) e[k] = dados[k]; });
+    ['sn', 'patrimonio', 'carrinho', 'numero', 'modelo', 'obs', 'tipo'].forEach(function (k) { if (k in dados) e[k] = dados[k]; });
     if ('defeitos' in dados) e.defeitos = dados.defeitos.slice();
     e.defeitos = e.defeitos || [];
     e.atualizado = agora;
@@ -248,7 +308,8 @@
 
     eqs.forEach(function (e) {
       var m = acharSistema(e.sn);
-      res.porEq[e.id] = { m: m, estado: m ? 'confere' : 'sem', aviso: '' };
+      res.porEq[e.id] = { m: m, estado: !norm(e.sn) ? 'semsn' : m ? 'confere' : 'sem', aviso: '',
+        tipo: e.tipo || (m && m.item.categoria) || 'Chromebook' };
       if (m) { (usados[m.item._i] = usados[m.item._i] || []).push(e); }
     });
 
@@ -290,7 +351,7 @@
       }
       // casou com o sistema
       if (m.tipo === 'prefixo') r.aviso = 'O cadastro do sistema tem o N/S incompleto (' + m.item.sn + ').';
-      if (cart && cart.localSistema && m.item.local && m.item.local !== cart.localSistema) {
+      if (cart && locaisDe(cart).length && m.item.local && locaisDe(cart).indexOf(m.item.local) < 0) {
         r.estado = 'local';
         novo('local_diferente', e, m.item, 'Local diferente no sistema',
           'O sistema diz que ' + m.item.sn + ' está em "' + m.item.local + '", mas você o cadastrou em "' + cart.nome + '".',
@@ -317,8 +378,7 @@
     });
 
     // no sistema, em carrinho que você cadastrou, mas não cadastrado aqui
-    var locaisCarrinhos = {};
-    S.carrinhos.forEach(function (cc) { if (cc.localSistema) locaisCarrinhos[cc.localSistema] = cc; });
+    var locaisCarrinhos = mapaLocais();
     livres.forEach(function (it) {
       if (reclamados[it._i]) return;
       var cc = locaisCarrinhos[it.local];
@@ -350,28 +410,71 @@
     return out;
   }
 
-  function resumo() {
-    var cf = conferir(), eqs = S.equipamentos, r = { total: eqs.length, confere: 0, semSistema: 0, ok: 0, ressalva: 0, fora: 0,
-      abertos: 0, resolvidos: 0, porCarrinho: [] };
-    var porC = {};
-    S.carrinhos.forEach(function (c) { porC[c.id] = { id: c.id, nome: c.nome, total: 0, confere: 0, ok: 0, ressalva: 0, fora: 0, casos: 0 }; });
-    var semC = { id: '', nome: '(sem carrinho)', total: 0, confere: 0, ok: 0, ressalva: 0, fora: 0, casos: 0 };
-    eqs.forEach(function (e) {
-      var p = cf.porEq[e.id], c = porC[e.carrinho] || semC, u = uso(e);
-      c.total++; c[u]++; r[u]++;
-      if (p && p.estado === 'confere') { c.confere++; r.confere++; }
-      if (!p || p.estado === 'sem' || p.estado === 'parecido') r.semSistema++;
+  function tipoDeCaso(x) { return x.eq ? tipoDe(x.eq) : ((x.sis && x.sis.categoria) || 'Chromebook'); }
+  function grupoDeCaso(t) { return t === 'local_diferente' ? 'sistema' : t === 'a_procurar' ? 'procurar' : 'etiqueta'; }
+  /* Números do painel. Com tipoF, só conta aquele tipo de equipamento. */
+  function resumo(tipoF) {
+    var cf = conferir(), r = { total: 0, confere: 0, semSistema: 0, semSn: 0, ok: 0, ressalva: 0, fora: 0, abertos: 0, resolvidos: 0,
+      grupos: { sistema: 0, etiqueta: 0, procurar: 0 }, sisTotal: 0, sisConferidos: 0, porCarrinho: [], porTipo: [], semLigacao: [] };
+    var porC = {}, mapa = mapaLocais();
+    function novoC(id, nome, tp) { return { id: id, nome: nome, tipo: tp, total: 0, confere: 0, local: 0, parecido: 0, sem: 0, semsn: 0, falta: 0, ok: 0, ressalva: 0, fora: 0, casos: 0 }; }
+    S.carrinhos.forEach(function (c) { porC[c.id] = novoC(c.id, c.nome, c.tipo || 'carrinho'); });
+    var semC = novoC('', '(sem carrinho)', 'carrinho');
+    S.equipamentos.forEach(function (e) {
+      if (tipoF && tipoDe(e) !== tipoF) return;
+      var p = cf.porEq[e.id], c = porC[e.carrinho] || semC, u = uso(e), st = p ? p.estado : 'sem';
+      r.total++; c.total++; c[u]++; r[u]++;
+      if (st === 'confere') { c.confere++; r.confere++; }
+      else if (st === 'local') c.local++;
+      else if (st === 'parecido') c.parecido++;
+      else if (st === 'semsn') { c.semsn++; r.semSn++; }
+      else c.sem++;
+      if (st === 'sem' || st === 'parecido') r.semSistema++;
     });
     cf.casos.forEach(function (x) {
-      if (x.resolvido) r.resolvidos++; else {
-        r.abertos++;
-        if (x.eq) { var c = porC[x.eq.carrinho] || semC; c.casos++; }
-        else if (x.sis) { var cc = S.carrinhos.filter(function (k) { return k.localSistema === x.sis.local; })[0]; if (cc) porC[cc.id].casos++; }
-      }
+      if (tipoF && tipoDeCaso(x) !== tipoF) return;
+      if (x.resolvido) { r.resolvidos++; return; }
+      r.abertos++; r.grupos[grupoDeCaso(x.tipo)]++;
+      var c = null;
+      if (x.eq) c = porC[x.eq.carrinho] || semC;
+      else if (x.sis && mapa[x.sis.local]) c = porC[mapa[x.sis.local].id];
+      if (c) { c.casos++; if (x.tipo === 'a_procurar') c.falta++; }
     });
-    r.porCarrinho = S.carrinhos.map(function (c) { return porC[c.id]; });
+    var casados = {};
+    Object.keys(cf.porEq).forEach(function (id) { var m = cf.porEq[id].m; if (m) casados[m.item._i] = 1; });
+    S.sistema.itens.forEach(function (it) {
+      if (tipoF && (it.categoria || 'Chromebook') !== tipoF) return;
+      r.sisTotal++; if (casados[it._i]) r.sisConferidos++;
+    });
+    var pt = {};
+    function gt(t) { return pt[t] || (pt[t] = { tipo: t, cad: 0, sis: 0, confere: 0, casos: 0, fora: 0 }); }
+    S.equipamentos.forEach(function (e) { var t = gt(tipoDe(e)), p = cf.porEq[e.id]; t.cad++; if (p && p.estado === 'confere') t.confere++; if (uso(e) === 'fora') t.fora++; });
+    S.sistema.itens.forEach(function (it) { gt(it.categoria || 'Chromebook').sis++; });
+    cf.casos.forEach(function (x) { if (!x.resolvido) gt(tipoDeCaso(x)).casos++; });
+    r.porTipo = tipos().filter(function (t) { return pt[t]; }).map(function (t) { return pt[t]; });
+    r.semLigacao = locaisDoSistema().filter(function (l) { return !mapa[l.nome]; });
+    var lista = S.carrinhos.filter(function (c) { return (c.tipo || 'carrinho') === 'carrinho'; }).concat(S.carrinhos.filter(function (c) { return c.tipo === 'local'; }));
+    r.porCarrinho = lista.map(function (c) { return porC[c.id]; }).filter(function (c) { return !tipoF || c.total || c.falta; });
     if (semC.total) r.porCarrinho.push(semC);
     return r;
+  }
+  /* Contagem por local e tipo: o que o sistema diz × o que foi cadastrado. */
+  function quantidades(tipoF) {
+    var linhas = [];
+    S.carrinhos.forEach(function (c) {
+      var loc = locaisDe(c), sis = {}, cad = {}, sem = {}, ts = [];
+      S.sistema.itens.forEach(function (it) { if (loc.indexOf(it.local) >= 0) { var t = it.categoria || 'Chromebook'; sis[t] = (sis[t] || 0) + 1; } });
+      S.equipamentos.forEach(function (e) {
+        if (e.carrinho !== c.id) return;
+        var t = tipoDe(e); cad[t] = (cad[t] || 0) + 1; if (!norm(e.sn)) sem[t] = (sem[t] || 0) + 1;
+      });
+      Object.keys(sis).concat(Object.keys(cad)).forEach(function (t) { if (ts.indexOf(t) < 0) ts.push(t); });
+      ts.forEach(function (t) {
+        if (tipoF && t !== tipoF) return;
+        linhas.push({ id: c.id, nome: c.nome, tipo: t, sis: loc.length ? (sis[t] || 0) : null, cad: cad[t] || 0, semSn: sem[t] || 0 });
+      });
+    });
+    return linhas;
   }
 
   /* ---------- importação de planilhas ---------- */
@@ -388,6 +491,7 @@
     { id: 'patrimonio', nome: 'Patrimônio', rx: /patrim|tombo|tombamento|plaqueta/i },
     { id: 'carrinho', nome: 'Carrinho ou local', rx: /carrinho|armario|armário|local|kit|sala|grupo|cart/i },
     { id: 'numero', nome: 'Número do computador no carrinho', rx: /^(n[ºo°\.]?|nº|no\.?|num(ero)?|número|item|ordem|#|posi[cç][aã]o|chrome|computador)\s*(do\s*(computador|chrome|chromebook|equipamento))?$/i },
+    { id: 'tipo', nome: 'Tipo de equipamento', rx: /^tipo|categ|classe/i },
     { id: 'modelo', nome: 'Modelo', rx: /modelo|marca|descri|equipamento/i },
     { id: 'obs', nome: 'Observações ou defeitos', rx: /obs|defeito|problema|estado|situa|coment|anota/i }
   ];
@@ -475,17 +579,18 @@
         var obs = m.obs >= 0 ? txt(r[m.obs]) : '';
         var dados = { sn: sn.replace(/\s+/g, ''), patrimonio: m.patrimonio >= 0 ? txt(r[m.patrimonio]) : '',
           carrinho: c ? c.id : '', numero: m.numero >= 0 ? txt(r[m.numero]) : '',
-          modelo: m.modelo >= 0 ? txt(r[m.modelo]) : '', obs: obs, defeitos: defeitosDoTexto(obs) };
+          modelo: m.modelo >= 0 ? txt(r[m.modelo]) : '', obs: obs, defeitos: defeitosDoTexto(obs), tipo: m.tipo >= 0 ? txt(r[m.tipo]) : '' };
         var ex = achaEq(dados.sn)[0];
         if (!dados.modelo) dados.modelo = modeloPara(dados.sn);
         if (ex) {
           if (!opc.atualizar) return;
           var mudou = false;
-          ['patrimonio', 'carrinho', 'numero', 'modelo', 'obs'].forEach(function (k) { if (!txt(ex[k]) && txt(dados[k])) { ex[k] = dados[k]; mudou = true; } });
+          ['patrimonio', 'carrinho', 'numero', 'modelo', 'obs', 'tipo'].forEach(function (k) { if (!txt(ex[k]) && txt(dados[k])) { ex[k] = dados[k]; mudou = true; } });
           if (mudou) { ex.atualizado = Date.now(); atualizados++; }
         } else {
           var e = { id: uid(), criado: Date.now(), atualizado: Date.now(), sn: dados.sn, patrimonio: dados.patrimonio, carrinho: dados.carrinho,
             numero: dados.numero, modelo: dados.modelo, obs: dados.obs, defeitos: dados.defeitos };
+          if (dados.tipo) e.tipo = dados.tipo;
           S.equipamentos.push(e); novos++;
         }
       });
@@ -511,17 +616,19 @@
     var mapaC = {};
     B.carrinhos.forEach(function (c) {
       var ex = carrinhoPorNome(c.nome, false);
-      if (!ex) { ex = { id: uid(), nome: c.nome, localSistema: c.localSistema || '' }; S.carrinhos.push(ex); rel.carrinhosNovos++; }
-      else if (!ex.localSistema && c.localSistema) ex.localSistema = c.localSistema;
+      var ls = c.locaisSis || (c.localSistema ? [c.localSistema] : []);
+      if (!ex) { ex = { id: uid(), nome: c.nome, tipo: c.tipo || 'carrinho', locaisSis: ls.slice() }; S.carrinhos.push(ex); rel.carrinhosNovos++; }
+      else if (!locaisDe(ex).length && ls.length) ex.locaisSis = ls.slice();
       mapaC[c.id] = ex.id;
     });
     B.equipamentos.forEach(function (be) {
-      var ex = achaEq(be.sn)[0];
-      var novo = { sn: be.sn, patrimonio: be.patrimonio || '', carrinho: mapaC[be.carrinho] || '', numero: be.numero || '', modelo: be.modelo || '',
-        obs: be.obs || '', defeitos: be.defeitos || [] };
+      var ex = norm(be.sn) ? achaEq(be.sn)[0] : S.equipamentos.filter(function (x) { return x.id === be.id; })[0];
+      var novo = { sn: be.sn || '', patrimonio: be.patrimonio || '', carrinho: mapaC[be.carrinho] || '', numero: be.numero || '', modelo: be.modelo || '',
+        obs: be.obs || '', defeitos: be.defeitos || [], tipo: be.tipo || '' };
       if (!ex) {
-        S.equipamentos.push({ id: uid(), criado: be.criado || Date.now(), atualizado: be.atualizado || Date.now(), sn: novo.sn, patrimonio: novo.patrimonio,
-          carrinho: novo.carrinho, numero: novo.numero, modelo: novo.modelo, obs: novo.obs, defeitos: novo.defeitos });
+        var idLivre = be.id && !S.equipamentos.some(function (x) { return x.id === be.id; });
+        S.equipamentos.push({ id: idLivre ? be.id : uid(), criado: be.criado || Date.now(), atualizado: be.atualizado || Date.now(), sn: novo.sn, patrimonio: novo.patrimonio,
+          carrinho: novo.carrinho, numero: novo.numero, modelo: novo.modelo, obs: novo.obs, defeitos: novo.defeitos, tipo: novo.tipo });
         rel.novos++;
       } else if ((be.atualizado || 0) > (ex.atualizado || 0)) {
         Object.keys(novo).forEach(function (k) { ex[k] = novo[k]; });
@@ -540,15 +647,19 @@
   function planilhasParaExportar() {
     var cf = conferir(), r = resumo(), tem = !!S.sistema.itens.length;
     var res = [['Inventário', S.meta.escola || ''], ['Gerado em', new Date().toLocaleString('pt-BR')], [],
-      ['Equipamentos cadastrados', r.total], ['Conferem com o sistema', r.confere], ['Casos abertos', r.abertos], ['Casos resolvidos', r.resolvidos],
-      ['Usáveis', r.ok + r.ressalva], ['Fora de uso', r.fora], [], ['Carrinho', 'Cadastrados', 'Conferem', 'Usáveis', 'Fora de uso', 'Casos abertos']];
+      ['Equipamentos cadastrados', r.total], ['No sistema', r.sisTotal], ['Conferem com o sistema', r.confere], ['Casos abertos', r.abertos], ['Casos resolvidos', r.resolvidos],
+      ['Usáveis', r.ok + r.ressalva], ['Fora de uso', r.fora], [], ['Tipo', 'Cadastrados', 'No sistema', 'Conferem', 'Casos abertos', 'Fora de uso']];
+    r.porTipo.forEach(function (t) { res.push([t.tipo, t.cad, t.sis, t.confere, t.casos, t.fora]); });
+    res.push([], ['Carrinho ou local', 'Cadastrados', 'Conferem', 'Usáveis', 'Fora de uso', 'Casos abertos']);
     r.porCarrinho.forEach(function (c) { res.push([c.nome, c.total, c.confere, c.ok + c.ressalva, c.fora, c.casos]); });
+    var qt = [['Carrinho ou local', 'Tipo', 'No sistema', 'Cadastrados', 'Diferença (cadastrados - sistema)', 'Sem N/S']];
+    quantidades().forEach(function (q) { qt.push([q.nome, q.tipo, q.sis == null ? 'sem ligação' : q.sis, q.cad, q.sis == null ? '' : q.cad - q.sis, q.semSn]); });
     var NOMEUSO = { ok: 'Usável', ressalva: 'Usável, com defeito', fora: 'Fora de uso' };
-    var eq = [['Carrinho', 'Nº', 'N/S', 'Patrimônio', 'Modelo', 'Estado', 'Defeitos', 'Observação', 'Situação na conferência', 'Local no sistema']];
+    var eq = [['Carrinho ou local', 'Nº', 'Tipo', 'N/S', 'Patrimônio', 'Modelo', 'Estado', 'Defeitos', 'Observação', 'Situação na conferência', 'Local no sistema']];
     S.equipamentos.slice().sort(function (a, b) { return nomeCarrinho(a.carrinho).localeCompare(nomeCarrinho(b.carrinho), 'pt-BR') || (parseInt(a.numero, 10) || 0) - (parseInt(b.numero, 10) || 0); })
       .forEach(function (e) {
-        var p = cf.porEq[e.id], est = !tem ? '' : p && p.estado === 'confere' ? 'Confere' : p && p.estado === 'local' ? 'Local diferente' : p && p.estado === 'parecido' ? 'Provável erro de digitação' : 'Não existe no sistema';
-        eq.push([nomeCarrinho(e.carrinho), e.numero || '', e.sn, e.patrimonio || '', e.modelo || '', NOMEUSO[uso(e)],
+        var p = cf.porEq[e.id], est = !tem ? '' : p && p.estado === 'semsn' ? 'Sem N/S (conta por quantidade)' : p && p.estado === 'confere' ? 'Confere' : p && p.estado === 'local' ? 'Local diferente' : p && p.estado === 'parecido' ? 'Provável erro de digitação' : 'Não existe no sistema';
+        eq.push([nomeCarrinho(e.carrinho), e.numero || '', tipoDe(e), e.sn || '(sem N/S)', e.patrimonio || '', e.modelo || '', NOMEUSO[uso(e)],
           (e.defeitos || []).map(function (id) { return DEF_POR_ID[id] ? DEF_POR_ID[id].nome : id; }).join(', '), e.obs || '', est, p && p.m ? p.m.item.local : '']);
       });
     var ca = [['Situação', 'Tipo', 'Carrinho', 'Nº', 'N/S cadastrado', 'N/S no sistema', 'Local no sistema', 'O que aconteceu', 'O que fazer', 'Anotação']];
@@ -565,8 +676,8 @@
       else if (c.tipo === 'provavel_erro') at.push(['Conferir etiqueta (provável erro de digitação)', c.sis.sn, c.sis.local, nomeCarrinho(c.eq.carrinho), 'Cadastrado aqui como ' + c.eq.sn]);
     });
     var atn = [['Tipo', 'Carrinho', 'Nº', 'N/S', 'Patrimônio', 'Detalhe']];
-    atencao().forEach(function (a) { atn.push([a.tipo, nomeCarrinho(a.eq.carrinho), a.eq.numero || '', a.eq.sn, a.eq.patrimonio || '', a.texto]); });
-    return [['Resumo', res], ['Equipamentos', eq], ['Conferência', ca], ['Atualizar no sistema', at], ['Atenção', atn]];
+    atencao().forEach(function (a) { atn.push([a.tipo, nomeCarrinho(a.eq.carrinho), a.eq.numero || '', a.eq.sn || '(sem N/S)', a.eq.patrimonio || '', a.texto]); });
+    return [['Resumo', res], ['Equipamentos', eq], ['Quantidades', qt], ['Conferência', ca], ['Atualizar no sistema', at], ['Atenção', atn]];
   }
   function exportarXlsx(nomeArquivo) {
     var wb = XLSX.utils.book_new();
@@ -588,6 +699,8 @@
   INV.salvarEq = salvarEq; INV.removerEq = removerEq; INV.proximoNumero = proximoNumero;
   INV.conferir = conferir; INV.resolverCaso = resolverCaso; INV.atencao = atencao; INV.resumo = resumo;
   INV.locaisDoSistema = locaisDoSistema; INV.sugerirLocal = sugerirLocal; INV.sugerirLocaisDosCarrinhos = sugerirLocaisDosCarrinhos;
+  INV.locaisDe = locaisDe; INV.sugerirLocaisSis = sugerirLocaisSis; INV.sugerirLocaisNovos = sugerirLocaisNovos; INV.criarLocal = criarLocal; INV.mapaLocais = mapaLocais;
+  INV.tipos = tipos; INV.tipoDe = tipoDe; INV.quantidades = quantidades; INV.grupoDeCaso = grupoDeCaso; INV.tipoDeCaso = tipoDeCaso;
   INV.sugerirRegrasModelo = sugerirRegrasModelo; INV.invalidar = invalidar; INV.invalidarCasos = invalidarCasos;
   INV.CAMPOS_SISTEMA = CAMPOS_SISTEMA; INV.CAMPOS_MINHA = CAMPOS_MINHA;
   INV.rowsDe = rowsDe; INV.acharCabecalho = acharCabecalho; INV.sugerirMapa = sugerirMapa; INV.valores = valores;

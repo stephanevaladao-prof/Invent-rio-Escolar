@@ -6,8 +6,10 @@
   var cad = null;            // formulário de cadastro em andamento
   var ultimoCarrinho = '';
   var recentes = [];         // últimos salvos nesta sessão
-  var eqFiltro = { q: '', c: '', max: 60 };
-  var cfFiltro = { sit: 'abertos', tipo: '', aba: 'casos', max: 40 };
+  var eqFiltro = { q: '', c: '', t: '', max: 60 };
+  var cfFiltro = { sit: 'abertos', tipo: '', grupo: '', eqTipo: '', aba: 'casos', max: 40 };
+  var pnTipo = '';           // filtro por tipo no painel
+  var ultimoTipo = 'Chromebook';
   var imp = null;            // importação em andamento
 
   /* ---------- utilidades de tela ---------- */
@@ -97,44 +99,143 @@
   }
 
   /* ---------- PAINEL ---------- */
+  var GRUPOS = {
+    sistema: ['Atualizar a localização no sistema', 'O N/S existe, mas está cadastrado em outro lugar. É só mudar o local lá.'],
+    etiqueta: ['Conferir a etiqueta do aparelho', 'Provável erro de digitação, N/S que o sistema não tem ou registro repetido.'],
+    procurar: ['Procurar ou cadastrar', 'Está no sistema, mas ainda não foi cadastrado aqui.']
+  };
+  function fmtN(n) { return Number(n || 0).toLocaleString('pt-BR'); }
   function vPainel() {
     var S = I.S, root = h('div', { class: 'view' });
-    var feitos = [!!S.meta.escola, temSistema(), S.carrinhos.length > 0 && S.carrinhos.every(function (c) { return c.localSistema; }), S.equipamentos.length > 0];
+    var feitos = [!!S.meta.escola, temSistema(), S.carrinhos.length > 0 && S.carrinhos.every(function (c) { return I.locaisDe(c).length; }), S.equipamentos.length > 0];
     var inicio = !(feitos[1] && feitos[3]);
-    add(root, h('div', null, h('h1', S.meta.escola || 'Bem-vindo'), h('p', { class: 'muted' }, S.equipamentos.length ? 'Resumo do que você já cadastrou.' : 'Vamos montar o inventário da sua escola.')));
+    var tem = temSistema();
+    var head = h('div', null, h('h1', S.meta.escola || 'Bem-vindo'), h('p', { class: 'muted' }, S.equipamentos.length ? 'Visão geral do inventário, conferido com o sistema.' : 'Vamos montar o inventário da sua escola.'));
+    add(root, head);
 
     if (inicio) {
       add(root, h('div', { class: 'card' }, h('h2', 'Primeiros passos'),
         h('div', { class: 'steps' },
           passo(feitos[0], 'Dê um nome à escola', 'Aparece no topo e nas planilhas que você exportar.', 'Abrir configurações', function () { ir('mais'); }),
           passo(feitos[1], 'Importe a lista do sistema', 'É a planilha que a Secretaria exporta com os equipamentos da escola.', 'Importar', function () { ir('importar'); }),
-          passo(feitos[2], 'Ligue cada carrinho ao local do sistema', 'Assim o aplicativo avisa quando o local no sistema está diferente.', 'Ver carrinhos', function () { ir('mais'); }),
+          passo(feitos[2], 'Ligue cada carrinho ou local ao nome que o sistema usa', 'Assim o aplicativo confere o local e conta os equipamentos de cada lugar.', 'Ver carrinhos e locais', function () { ir('mais'); }),
           passo(feitos[3], 'Cadastre os equipamentos', 'Digite ou leia o código de barras. Ou importe a sua planilha de inventário.', 'Cadastrar', function () { ir('cadastrar'); }))));
     }
     if (!S.equipamentos.length) return root;
 
-    var r = I.resumo(), tem = temSistema();
+    var todos = I.resumo(), tiposUsados = todos.porTipo;
+    if (pnTipo && !tiposUsados.some(function (t) { return t.tipo === pnTipo; })) pnTipo = '';
+    var r = pnTipo ? I.resumo(pnTipo) : todos;
+    var filtroTxt = pnTipo ? ' (' + pnTipo + ')' : '';
+
+    // frase-resumo
+    var take = h('p', { class: 'take' });
+    if (tem) {
+      add(take, h('b', fmtN(r.total)), ' equipamentos cadastrados de ', h('b', fmtN(r.sisTotal)), ' no sistema' + filtroTxt + '. ');
+      var div = r.grupos.sistema + r.grupos.etiqueta;
+      if (div) add(take, h('b', fmtN(div)), div === 1 ? ' divergência para resolver: ' : ' divergências para resolver: ', h('b', r.grupos.sistema), ' pedem só uma mudança de local no sistema e ', h('b', r.grupos.etiqueta), ' pedem para olhar a etiqueta. ');
+      else add(take, 'Tudo que foi cadastrado confere com o sistema. ');
+      if (r.grupos.procurar) add(take, h('b', fmtN(r.grupos.procurar)), r.grupos.procurar === 1 ? ' equipamento está no sistema, mas ainda não foi cadastrado aqui.' : ' equipamentos estão no sistema, mas ainda não foram cadastrados aqui.');
+    } else add(take, h('b', fmtN(r.total)), ' equipamentos cadastrados. Importe a lista do sistema para conferir.');
+    add(head, take);
+
     add(root, h('div', { class: 'kpis' },
-      kpi(r.total, 'cadastrados'),
+      kpi(fmtN(r.total), 'cadastrados', tem ? 'de ' + fmtN(r.sisTotal) + ' no sistema' : ''),
       tem ? kpi(fmtPct(r.confere, r.total), 'conferem com o sistema', r.confere + ' de ' + r.total) : null,
-      tem ? kpi(r.abertos, 'casos abertos', r.resolvidos + ' resolvidos') : null,
-      kpi(r.ok + r.ressalva, 'usáveis', r.ressalva ? r.ressalva + ' com defeito' : ''),
-      kpi(r.fora, 'fora de uso')));
+      tem ? kpi(fmtN(r.grupos.sistema + r.grupos.etiqueta), 'divergências com o sistema', r.resolvidos + ' resolvidas') : null,
+      tem ? kpi(fmtN(Math.max(0, r.sisTotal - r.sisConferidos)), 'faltam cadastrar', 'estão no sistema, mas não aqui') : null,
+      kpi(fmtN(r.ok + r.ressalva), 'usáveis', r.ressalva ? r.ressalva + ' com defeito' : ''),
+      kpi(fmtN(r.fora), 'fora de uso', r.semSn ? r.semSn + ' sem N/S' : '')));
     if (!tem) add(root, h('div', { class: 'note n-info' }, h('b', 'Falta a lista do sistema'), h('p', 'Importe a planilha do sistema para o aplicativo conferir N/S e local.'), h('div', { class: 'btns' }, h('button', { class: 'btn sm', onclick: function () { ir('importar'); } }, 'Importar agora'))));
 
-    var card = h('div', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', 'Por carrinho'), h('span', { class: 'muted', style: 'font-size:.82rem' }, 'verde: usável · amarelo: com defeito · vermelho: fora de uso')));
-    r.porCarrinho.forEach(function (c) {
-      var t = c.total || 1;
-      add(card, h('div', { class: 'cart' },
-        h('div', { class: 'cart-h' }, h('b', c.nome), h('span', { class: 'muted', style: 'font-size:.85rem' }, c.total + ' cadastrados' + (tem ? ' · ' + c.confere + ' conferem' : '') + (c.casos ? ' · ' + c.casos + ' caso' + (c.casos > 1 ? 's' : '') : ''))),
-        h('div', { class: 'bar', 'aria-hidden': 'true' }, h('i', { class: 'a', style: 'width:' + (100 * c.ok / t) + '%' }), h('i', { class: 'b', style: 'width:' + (100 * c.ressalva / t) + '%' }), h('i', { class: 'c', style: 'width:' + (100 * c.fora / t) + '%' }))));
-    });
-    add(root, card);
+    // por tipo
+    if (tiposUsados.length > 1) {
+      var gt = h('div', { class: 'tipos' });
+      tiposUsados.forEach(function (t) {
+        var pct = t.cad ? 100 * t.confere / t.cad : 0;
+        add(gt, h('button', { class: 'grp', type: 'button', 'aria-pressed': pnTipo === t.tipo ? 'true' : 'false', onclick: function () { pnTipo = pnTipo === t.tipo ? '' : t.tipo; render(); } },
+          h('span', { class: 'v' }, fmtN(t.cad), tem && t.sis ? h('small', { class: 'muted', style: 'font-size:.9rem;font-family:inherit' }, ' / ' + fmtN(t.sis)) : null),
+          h('span', { class: 'h' }, t.tipo),
+          h('span', { class: 'd' }, tem ? t.confere + ' conferem' + (t.casos ? ' · ' + t.casos + ' caso' + (t.casos > 1 ? 's' : '') : '') : 'cadastrados'),
+          tem ? h('span', { class: 'bar', 'aria-hidden': 'true' }, h('i', { class: 'a', style: 'width:' + pct + '%' })) : null));
+      });
+      add(root, h('div', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', 'Por tipo de equipamento'), h('span', { class: 'muted', style: 'font-size:.82rem' }, 'Toque em um tipo para filtrar o painel' + (tem ? ' · cadastrados / no sistema' : ''))), gt));
+    }
+
+    // gráficos por carrinho ou local
+    var linhas = r.porCarrinho;
+    if (linhas.length) {
+      var maxv = 1; linhas.forEach(function (c) { maxv = Math.max(maxv, c.total + c.falta); });
+      function barras(partes, dados, so) {
+        var box = h('div');
+        linhas.forEach(function (c) {
+          if (so && !partes.reduce(function (a, p) { return a + dados(c, p.k); }, 0)) return;
+          var segs = partes.map(function (p) { var v = dados(c, p.k); return v ? h('i', { class: p.c, style: 'width:' + (100 * v / maxv) + '%', title: p.l + ': ' + v }) : null; });
+          var tot = partes.reduce(function (a, p) { return a + dados(c, p.k); }, 0);
+          add(box, h('div', { class: 'srow' }, h('span', { class: 'nm', title: c.nome }, c.nome), h('div', { class: 'sbar', 'aria-hidden': 'true' }, segs), h('span', { class: 'tt' }, tot)));
+        });
+        return box;
+      }
+      function leg(partes) { return h('div', { class: 'legend' }, partes.map(function (p) { return h('span', null, h('i', { class: p.c }), p.l); })); }
+      var p1 = [{ k: 'confere', l: 'Confere', c: 'c-ok' }, { k: 'local', l: 'Local diferente', c: 'c-local' }, { k: 'parecido', l: 'Provável erro de digitação', c: 'c-prov' }, { k: 'sem', l: 'Não está no sistema', c: 'c-bad' }, { k: 'semsn', l: 'Sem N/S', c: 'c-sn' }, { k: 'falta', l: 'No sistema, falta cadastrar', c: 'c-falta' }];
+      var p2 = [{ k: 'ok', l: 'Usável', c: 'c-uok' }, { k: 'ressalva', l: 'Usável, com defeito', c: 'c-uress' }, { k: 'fora', l: 'Fora de uso', c: 'c-ufora' }];
+      add(root, h('div', { class: 'grid g2' },
+        tem ? h('div', { class: 'card' }, h('h2', 'O que o sistema diz de cada carrinho e local' + filtroTxt), h('p', { class: 'muted', style: 'font-size:.88rem' }, 'Cada equipamento cadastrado, comparado com o sistema.'), leg(p1), barras(p1, function (c, k) { return k === 'falta' ? c.falta : c[k]; })) : null,
+        h('div', { class: 'card' }, h('h2', 'Estado de uso de cada carrinho e local' + filtroTxt), h('p', { class: 'muted', style: 'font-size:.88rem' }, 'Pelo que foi anotado nos defeitos.'), leg(p2), barras(p2, function (c, k) { return c[k]; }, true))));
+    }
+
+    // plano de resolução
+    if (tem) {
+      if (r.abertos) {
+        var plano = h('div', { class: 'plano' });
+        ['sistema', 'etiqueta', 'procurar'].forEach(function (g) {
+          add(plano, h('button', { class: 'grp', type: 'button', onclick: function () { cfFiltro.grupo = g; cfFiltro.eqTipo = pnTipo; cfFiltro.sit = 'abertos'; cfFiltro.tipo = ''; cfFiltro.aba = 'casos'; cfFiltro.max = 40; ir('conferir'); } },
+            h('span', { class: 'v' }, r.grupos[g]), h('span', { class: 'h' }, GRUPOS[g][0]), h('span', { class: 'd' }, GRUPOS[g][1]),
+            h('span', { class: 'bar', 'aria-hidden': 'true' }, h('i', { class: g === 'sistema' ? 'a' : g === 'etiqueta' ? 'b' : 'c', style: 'width:' + (100 * r.grupos[g] / (r.abertos || 1)) + '%' }))));
+        });
+        add(root, h('div', { class: 'card' }, h('h2', 'Plano de resolução'), h('p', { class: 'muted', style: 'font-size:.88rem' }, 'Toque em um grupo para ver os casos.'), plano));
+      }
+      // quantidades
+      var qs = I.quantidades(pnTipo).filter(function (q) { return q.sis !== 0 || q.cad; });
+      if (qs.length) {
+        var tb = h('table', null, h('thead', null, h('tr', null, h('th', 'Carrinho ou local'), h('th', 'Tipo'), h('th', { class: 'num' }, 'No sistema'), h('th', { class: 'num' }, 'Cadastrados'), h('th', { class: 'num' }, 'Diferença'), h('th', { class: 'num' }, 'Sem N/S'))),
+          h('tbody', null, qs.map(function (q) {
+            var d = q.sis == null ? null : q.cad - q.sis;
+            return h('tr', null, h('td', q.nome), h('td', q.tipo), h('td', { class: 'num' }, q.sis == null ? 'sem ligação' : q.sis), h('td', { class: 'num' }, q.cad),
+              h('td', { class: 'num ' + (d == null ? '' : d === 0 ? 'dif-0' : d > 0 ? 'dif-mais' : 'dif-menos') }, d == null ? '—' : d > 0 ? '+' + d : d), h('td', { class: 'num' }, q.semSn || ''));
+          })));
+        add(root, h('div', { class: 'card' }, h('h2', 'Contagem por carrinho, local e tipo' + filtroTxt),
+          h('p', { class: 'muted', style: 'font-size:.88rem' }, 'Quantos o sistema diz que existem em cada lugar × quantos você cadastrou. Diferença negativa: faltam cadastrar. Serve também para o que não tem N/S legível.'), h('div', { class: 'tbox' }, tb)));
+      }
+      if (todos.semLigacao.length) {
+        var itens = todos.semLigacao.reduce(function (a, l) { return a + l.n; }, 0);
+        add(root, h('div', { class: 'note n-info' }, h('b', todos.semLigacao.length + ' locais do sistema sem ligação'), h('p', fmtN(itens) + ' equipamentos do sistema estão em locais que você ainda não criou aqui (por exemplo: ' + todos.semLigacao.slice(0, 3).map(function (l) { return l.nome.trim(); }).join('; ') + (todos.semLigacao.length > 3 ? '…' : '') + ').'),
+          h('div', { class: 'btns' }, h('button', { class: 'btn sm', onclick: function () { dlgLocaisNovos(); } }, 'Criar locais a partir do sistema'))));
+      }
+    }
 
     var at = I.atencao();
     if (at.length) add(root, h('div', { class: 'card' }, h('h2', 'Para atenção'), h('p', { class: 'muted' }, at.filter(function (a) { return a.tipo === 'Defeito'; }).length + ' defeitos anotados e ' + at.filter(function (a) { return a.tipo !== 'Defeito'; }).length + ' equipamentos sem patrimônio.'),
       h('div', { class: 'btns' }, h('button', { class: 'btn sm', onclick: function () { cfFiltro.aba = 'atencao'; ir('conferir'); } }, 'Ver lista'))));
     return root;
+  }
+  function dlgLocaisNovos() {
+    var sug = I.sugerirLocaisNovos();
+    if (!sug.length) { toast('Todos os locais do sistema já estão ligados.'); return; }
+    var linhas = sug.map(function (g) {
+      var ck = h('input', { type: 'checkbox', checked: true, style: 'width:20px;height:20px;accent-color:var(--brand);margin-top:6px' });
+      var nm = h('input', { type: 'text', value: g.nome });
+      return { g: g, ck: ck, nm: nm, el: h('div', { style: 'display:flex;gap:10px;align-items:flex-start;border-top:1px solid var(--line);padding:8px 0' }, ck,
+        h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:3px;min-width:0' }, nm, h('span', { class: 'muted', style: 'font-size:.8rem' }, (g.tipo === 'carrinho' ? 'Carrinho' : 'Local') + ' · ' + g.n + ' itens · no sistema: ' + g.locais.map(function (l) { return l.trim(); }).join('; ')))) };
+    });
+    abrirDlg([dlgTopo('Criar locais a partir do sistema'),
+      h('p', { class: 'muted', style: 'font-size:.9rem' }, 'O sistema usa estes nomes para os equipamentos que você ainda não ligou a nenhum lugar. Locais com o mesmo nome (como "Laboratório de Informática" para mini PCs e monitores) ficam juntos. Mude o nome ou desmarque o que não quiser.'),
+      h('div', { style: 'max-height:55vh;overflow:auto' }, linhas.map(function (l) { return l.el; })),
+      h('div', { class: 'btns' }, h('button', { class: 'btn pri', onclick: function () {
+        var n = 0;
+        linhas.forEach(function (l) { if (l.ck.checked && I.txt(l.nm.value)) { I.criarLocal(I.txt(l.nm.value), l.g.tipo, l.g.locais); n++; } });
+        fecharDlg(); toast(n + (n === 1 ? ' local criado.' : ' locais criados.')); render();
+      } }, 'Criar selecionados'), h('button', { class: 'btn', onclick: fecharDlg }, 'Cancelar'))]);
   }
   function passo(feito, titulo, desc, botao, fn) {
     return h('div', { class: 'step' + (feito ? ' done' : '') }, h('div', null, h('b', titulo), h('span', { class: 'muted', style: 'font-size:.9rem' }, desc),
@@ -143,24 +244,27 @@
   function kpi(v, l, sub) { return h('div', { class: 'kpi' }, h('span', { class: 'v' }, v), h('span', { class: 'l' }, l), sub ? h('span', { class: 'l' }, sub) : null); }
 
   /* ---------- CADASTRAR ---------- */
+  function numSug(id) { var c = I.carrinho(id); return c && (c.tipo || 'carrinho') === 'carrinho' ? String(I.proximoNumero(id)) : ''; }
   function novoForm(base) {
-    return { id: '', sn: '', patrimonio: '', carrinho: ultimoCarrinho, numero: '', modelo: '', modeloAuto: true, defeitos: [], obs: '' };
+    return { id: '', sn: '', semSn: false, patrimonio: '', carrinho: ultimoCarrinho, numero: '', modelo: '', modeloAuto: true, tipo: ultimoTipo, tipoAuto: true, defeitos: [], obs: '' };
   }
   function carregarEdicao(e) {
-    cad = { id: e.id, sn: e.sn, patrimonio: e.patrimonio || '', carrinho: e.carrinho, numero: e.numero || '', modelo: e.modelo || '',
-      modeloAuto: false, defeitos: (e.defeitos || []).slice(), obs: e.obs || '' };
+    cad = { id: e.id, sn: e.sn || '', semSn: !I.norm(e.sn), patrimonio: e.patrimonio || '', carrinho: e.carrinho, numero: e.numero || '', modelo: e.modelo || '',
+      modeloAuto: false, tipo: I.tipoDe(e), tipoAuto: false, defeitos: (e.defeitos || []).slice(), obs: e.obs || '' };
     ir('cadastrar');
   }
   function vCadastrar() {
     var S = I.S;
-    if (!cad) { cad = novoForm(); if (cad.carrinho) cad.numero = String(I.proximoNumero(cad.carrinho)); }
+    if (!cad) { cad = novoForm(); if (cad.carrinho) cad.numero = numSug(cad.carrinho); }
     var root = h('div', { class: 'view' });
     var editando = !!cad.id;
     add(root, h('div', null, h('h1', editando ? 'Editar equipamento' : 'Cadastrar equipamento'), h('p', { class: 'muted' }, editando ? 'Mude o que for preciso e salve.' : 'Digite o N/S ou leia o código de barras. O aplicativo confere com o sistema na hora.')));
+    var selT;
 
     var aviso = h('div'), inSn, inPat, selC, inNum, inMod, inObs, form;
     function mostrarAviso() {
       aviso.textContent = '';
+      if (cad.semSn) { add(aviso, h('div', { class: 'note n-info' }, h('b', 'Sem N/S'), h('p', 'Este equipamento não será conferido pelo N/S, só pela contagem do local. Anote o patrimônio e o modelo para identificá-lo depois.'))); return; }
       var n = I.norm(cad.sn);
       if (n.length < 6) { if (cad.modeloAuto && inMod && cad.modelo && !I.modeloPara(cad.sn)) { cad.modelo = ''; inMod.value = ''; } return; }
       var outro = I.achaEq(cad.sn).filter(function (e) { return e.id !== cad.id; })[0];
@@ -169,7 +273,8 @@
       if (!temSistema()) { if (cad.modeloAuto) { cad.modelo = I.modeloPara(cad.sn); if (inMod) inMod.value = cad.modelo; } return; }
       var m = I.acharSistema(cad.sn), c = I.carrinho(cad.carrinho);
       if (m) {
-        var it = m.item, difLoc = c && c.localSistema && it.local && it.local !== c.localSistema;
+        var it = m.item, difLoc = c && I.locaisDe(c).length && it.local && I.locaisDe(c).indexOf(it.local) < 0;
+        if (cad.tipoAuto && it.categoria) { cad.tipo = it.categoria; if (selT) selT.value = cad.tipo; }
         add(aviso, h('div', { class: 'note ' + (difLoc ? 'n-warn' : 'n-ok') }, h('b', difLoc ? 'Está no sistema, mas em outro local' : 'Está no sistema'),
           h('p', [it.modelo || 'Sem modelo no sistema', it.local ? ' · local no sistema: ' + it.local : '', m.tipo === 'prefixo' ? ' · o cadastro do sistema está com o N/S incompleto (' + it.sn + ')' : ''].join('')),
           difLoc ? h('p', 'Você escolheu ' + c.nome + '. Vai aparecer em Conferir como "local diferente".') : null));
@@ -195,17 +300,22 @@
 
     inSn = h('input', { class: 'big mono', type: 'text', id: 'f-sn', autocomplete: 'off', autocapitalize: 'characters', autocorrect: 'off', spellcheck: 'false', placeholder: 'N/S do equipamento', inputmode: 'text', value: cad.sn,
       oninput: function () { cad.sn = this.value; mostrarAviso(); } });
+    var ckSem = h('label', { class: 'inl-check' }, h('input', { type: 'checkbox', checked: cad.semSn, onchange: function () {
+      cad.semSn = this.checked; inSn.disabled = this.checked; if (this.checked) { cad.sn = ''; inSn.value = ''; } mostrarAviso(); } }), 'Não consegui ler o N/S (conta só por quantidade)');
+    inSn.disabled = cad.semSn;
     var linhaSn = h('div', { class: 'row-inl' }, inSn,
       suportaScan() ? h('button', { type: 'button', class: 'btn', title: 'Ler código de barras', onclick: function () { abrirScan(function (v) { cad.sn = v; inSn.value = v; mostrarAviso(); }); } }, 'Câmera') : null);
 
     inPat = h('input', { type: 'text', inputmode: 'numeric', value: cad.patrimonio, placeholder: 'Ex.: 382780', oninput: function () { cad.patrimonio = this.value; } });
     selC = h('select', { onchange: function () {
-      if (this.value === '__novo') { novoCarrinhoDlg(function (c) { cad.carrinho = c.id; cad.numero = String(I.proximoNumero(c.id)); ultimoCarrinho = c.id; render(); }); this.value = cad.carrinho; return; }
+      if (this.value === '__novo') { novoCarrinhoDlg(function (c) { cad.carrinho = c.id; cad.numero = numSug(c.id); ultimoCarrinho = c.id; render(); }); this.value = cad.carrinho; return; }
       cad.carrinho = this.value; ultimoCarrinho = this.value;
-      if (!editando) { cad.numero = cad.carrinho ? String(I.proximoNumero(cad.carrinho)) : ''; inNum.value = cad.numero; }
+      if (!editando) { cad.numero = numSug(cad.carrinho); inNum.value = cad.numero; }
       mostrarAviso();
-    } }, h('option', { value: '' }, 'Escolha o carrinho'),
-      S.carrinhos.map(function (c) { return h('option', { value: c.id }, c.nome); }), h('option', { value: '__novo' }, '+ Novo carrinho…'));
+    } }, h('option', { value: '' }, 'Escolha o carrinho ou local'),
+      S.carrinhos.map(function (c) { return h('option', { value: c.id }, c.nome + (c.tipo === 'local' ? ' (local)' : '')); }), h('option', { value: '__novo' }, '+ Novo carrinho ou local…'));
+    selT = h('select', { onchange: function () { cad.tipo = this.value; cad.tipoAuto = false; ultimoTipo = this.value; } }, I.tipos().map(function (t) { return h('option', { value: t }, t); }));
+    selT.value = cad.tipo;
     selC.value = cad.carrinho;
     inNum = h('input', { type: 'text', inputmode: 'numeric', value: cad.numero, oninput: function () { cad.numero = this.value; } });
     inMod = h('input', { type: 'text', value: cad.modelo, placeholder: 'Preenchido pelo N/S quando possível', oninput: function () { cad.modelo = this.value; cad.modeloAuto = !this.value; } });
@@ -219,23 +329,25 @@
     function salvar(ev) {
       ev.preventDefault();
       var sn = I.txt(cad.sn).replace(/\s+/g, '');
-      if (!sn) { toast('Digite o número de série.'); inSn.focus(); return; }
-      if (!cad.carrinho) { toast('Escolha o carrinho.'); selC.focus(); return; }
-      var outro = I.achaEq(sn).filter(function (e) { return e.id !== cad.id; })[0];
+      if (cad.semSn) sn = '';
+      if (!sn && !cad.semSn) { toast('Digite o número de série, ou marque que não conseguiu ler.'); inSn.focus(); return; }
+      if (!cad.carrinho) { toast('Escolha o carrinho ou local.'); selC.focus(); return; }
+      var outro = sn ? I.achaEq(sn).filter(function (e) { return e.id !== cad.id; })[0] : null;
       if (outro && !confirm('Este N/S já está cadastrado em ' + I.nomeCarrinho(outro.carrinho) + '. Salvar mesmo assim, como outro cadastro?')) return;
-      var e = I.salvarEq({ id: cad.id, sn: sn, patrimonio: I.txt(cad.patrimonio), carrinho: cad.carrinho, numero: I.txt(cad.numero), modelo: I.txt(cad.modelo), obs: I.txt(cad.obs), defeitos: cad.defeitos });
-      ultimoCarrinho = e.carrinho;
+      var e = I.salvarEq({ id: cad.id, sn: sn, patrimonio: I.txt(cad.patrimonio), carrinho: cad.carrinho, numero: I.txt(cad.numero), modelo: I.txt(cad.modelo), obs: I.txt(cad.obs), defeitos: cad.defeitos, tipo: cad.tipo });
+      ultimoCarrinho = e.carrinho; ultimoTipo = cad.tipo;
       recentes = [e.id].concat(recentes.filter(function (x) { return x !== e.id; })).slice(0, 6);
       toast('Salvo: ' + I.nomeCarrinho(e.carrinho) + (e.numero ? ', nº ' + e.numero : ''));
-      cad = novoForm(); cad.numero = String(I.proximoNumero(cad.carrinho));
+      cad = novoForm(); cad.numero = numSug(cad.carrinho);
       render();
       setTimeout(function () { var el = $('#f-sn'); if (el) el.focus(); }, 50);
     }
 
     form = h('form', { class: 'card', onsubmit: salvar, autocomplete: 'off' },
-      h('label', { class: 'f' }, 'Número de série (N/S)', linhaSn), aviso,
-      h('div', { class: 'row2' }, h('label', { class: 'f' }, 'Carrinho ou local', selC), h('label', { class: 'f' }, 'Nº do computador no carrinho', inNum)),
-      h('div', { class: 'row2' }, h('label', { class: 'f' }, 'Patrimônio', inPat), h('label', { class: 'f' }, 'Modelo', inMod)),
+      h('label', { class: 'f' }, 'Número de série (N/S)', linhaSn), ckSem, aviso,
+      h('div', { class: 'row2' }, h('label', { class: 'f' }, 'Tipo de equipamento', selT), h('label', { class: 'f' }, 'Carrinho ou local', selC)),
+      h('div', { class: 'row2' }, h('label', { class: 'f' }, 'Nº no carrinho (se tiver)', inNum), h('label', { class: 'f' }, 'Patrimônio', inPat)),
+      h('label', { class: 'f' }, 'Modelo', inMod),
       h('details', { open: cad.defeitos.length > 0 }, h('summary', { style: 'cursor:pointer;font-weight:600;padding:6px 0' }, 'Defeitos e observações'),
         h('div', { style: 'display:flex;flex-direction:column;gap:10px;margin-top:8px' }, defs, h('label', { class: 'f' }, 'Observação', inObs))),
       h('div', { class: 'btns' },
@@ -254,11 +366,12 @@
     return root;
   }
   function novoCarrinhoDlg(cb) {
-    var inp = h('input', { type: 'text', placeholder: 'Ex.: Carrinho 01 (azul)' });
-    abrirDlg([dlgTopo('Novo carrinho ou local'), h('label', { class: 'f' }, 'Nome', inp),
+    var inp = h('input', { type: 'text', placeholder: 'Ex.: Carrinho 01 (azul) ou Laboratório de Informática' });
+    var tp = h('select', null, h('option', { value: 'carrinho' }, 'Carrinho (equipamentos numerados)'), h('option', { value: 'local' }, 'Local fixo (sala, laboratório, secretaria…)'));
+    abrirDlg([dlgTopo('Novo carrinho ou local'), h('label', { class: 'f' }, 'Nome', inp), h('label', { class: 'f' }, 'O que é', tp),
       h('div', { class: 'btns' }, h('button', { class: 'btn pri', onclick: function () {
         if (!I.txt(inp.value)) return;
-        var c = I.carrinhoPorNome(inp.value, true); I.sugerirLocaisDosCarrinhos(); I.save(); fecharDlg(); cb(c);
+        var c = I.carrinhoPorNome(inp.value, true, tp.value); c.tipo = c.tipo || tp.value; I.sugerirLocaisDosCarrinhos(); I.save(); fecharDlg(); cb(c);
       } }, 'Criar'), h('button', { class: 'btn', onclick: fecharDlg }, 'Cancelar'))]);
     setTimeout(function () { inp.focus(); }, 50);
   }
@@ -266,20 +379,22 @@
   /* ---------- EQUIPAMENTOS ---------- */
   function itemEq(e) {
     var p = I.conferir().porEq[e.id], est = null;
-    if (temSistema() && p) est = p.estado === 'confere' ? h('span', { class: 'badge b-ok' }, 'Confere') : p.estado === 'local' ? h('span', { class: 'badge b-warn' }, 'Local diferente') : p.estado === 'parecido' ? h('span', { class: 'badge b-warn' }, 'Parecido no sistema') : h('span', { class: 'badge b-bad' }, 'Não está no sistema');
+    if (temSistema() && p) est = p.estado === 'semsn' ? h('span', { class: 'badge b-mut' }, 'Conta por quantidade') : p.estado === 'confere' ? h('span', { class: 'badge b-ok' }, 'Confere') : p.estado === 'local' ? h('span', { class: 'badge b-warn' }, 'Local diferente') : p.estado === 'parecido' ? h('span', { class: 'badge b-warn' }, 'Parecido no sistema') : h('span', { class: 'badge b-bad' }, 'Não está no sistema');
     return h('button', { class: 'item', type: 'button', onclick: function () { detalheEq(e); } },
-      h('span', { class: 'main' }, h('span', { class: 'sn' }, e.sn), h('span', { class: 'sub' }, [I.nomeCarrinho(e.carrinho), e.numero ? 'nº ' + e.numero : '', e.modelo].filter(Boolean).join(' · '))),
+      h('span', { class: 'main' }, h('span', { class: 'sn' }, e.sn || 'Sem N/S' + (e.patrimonio ? ' · pat. ' + e.patrimonio : '')), h('span', { class: 'sub' }, [I.nomeCarrinho(e.carrinho), e.numero ? 'nº ' + e.numero : '', I.tipoDe(e) !== 'Chromebook' ? I.tipoDe(e) : '', e.modelo].filter(Boolean).join(' · '))),
       h('span', { style: 'display:flex;flex-direction:column;gap:4px;align-items:flex-end' }, badgeUso(e), est));
   }
   function detalheEq(e) {
     var p = I.conferir().porEq[e.id], kv = h('dl', { class: 'kv' });
     function par(k, v) { add(kv, h('dt', k)); add(kv, h('dd', v || '—')); }
-    par('Carrinho', I.nomeCarrinho(e.carrinho) + (e.numero ? ', nº ' + e.numero : ''));
+    par('Tipo', I.tipoDe(e));
+    par('Carrinho ou local', I.nomeCarrinho(e.carrinho) + (e.numero ? ', nº ' + e.numero : ''));
     par('Patrimônio', e.patrimonio); par('Modelo', e.modelo);
     par('Defeitos', (e.defeitos || []).map(function (id) { return I.DEF_POR_ID[id] ? I.DEF_POR_ID[id].nome : id; }).join(', '));
     par('Observação', e.obs);
     var sis = h('dl', { class: 'kv' }), nota = null;
     if (!temSistema()) nota = h('p', { class: 'muted' }, 'Importe a lista do sistema para comparar.');
+    else if (p && p.estado === 'semsn') nota = h('div', { class: 'note n-info' }, h('b', 'Sem N/S'), h('p', 'Este equipamento não é conferido pelo N/S. Ele entra na contagem por quantidade do local.'));
     else if (p && p.m) {
       var it = p.m.item;
       [['N. Série', it.sn], ['Modelo', it.modelo], ['Local', it.local], ['Situação', it.situacao], ['Patrimônio', it.patrimonio]].forEach(function (x) { if (x[1]) { add(sis, h('dt', x[0])); add(sis, h('dd', x[1])); } });
@@ -287,7 +402,7 @@
     } else if (p && p.parecido) nota = h('div', { class: 'note n-warn' }, h('b', 'Provável erro de digitação'), h('p', 'O mais parecido no sistema é ' + p.parecido.sn + (p.parecido.local ? ' (' + p.parecido.local + ')' : '') + '.'));
     else nota = h('div', { class: 'note n-bad' }, h('b', 'Não está no sistema'), h('p', 'Este N/S não existe na lista importada.'));
     var caso = p && p.caso && !p.caso.resolvido ? h('div', { class: 'note n-warn' }, h('b', p.caso.titulo), h('p', p.caso.texto), h('p', p.caso.acao)) : null;
-    abrirDlg([dlgTopo(e.sn), h('div', { class: 'chips' }, badgeUso(e)),
+    abrirDlg([dlgTopo(e.sn || 'Sem N/S'), h('div', { class: 'chips' }, badgeUso(e)),
       h('h3', 'O que você cadastrou'), kv, h('h3', 'O que o sistema diz'), sis, nota, caso,
       h('div', { class: 'btns' }, h('button', { class: 'btn pri', onclick: function () { fecharDlg(); carregarEdicao(e); } }, 'Editar'),
         h('button', { class: 'btn bad', onclick: function () { if (confirm('Apagar este cadastro?')) { I.removerEq(e.id); fecharDlg(); toast('Cadastro apagado.'); render(); } } }, 'Apagar'))]);
@@ -297,16 +412,19 @@
     add(root, h('div', null, h('h1', 'Equipamentos'), h('p', { class: 'muted' }, 'Procure por qualquer pedaço do N/S, pelo patrimônio ou pelo modelo.')));
     var lista = h('div', { class: 'list' }), cont = h('p', { class: 'muted' });
     var q = h('input', { type: 'search', placeholder: 'Buscar N/S, patrimônio ou modelo', value: eqFiltro.q, oninput: function () { eqFiltro.q = this.value; eqFiltro.max = 60; desenhar(); } });
-    var sel = h('select', { onchange: function () { eqFiltro.c = this.value; eqFiltro.max = 60; desenhar(); } }, h('option', { value: '' }, 'Todos os carrinhos'),
+    var sel = h('select', { onchange: function () { eqFiltro.c = this.value; eqFiltro.max = 60; desenhar(); } }, h('option', { value: '' }, 'Todos os carrinhos e locais'),
       S.carrinhos.map(function (c) { return h('option', { value: c.id }, c.nome); }));
     sel.value = eqFiltro.c;
-    var barra = h('div', { class: 'card flat' }, h('div', { class: 'row2' }, q, sel));
+    var selTp = h('select', { onchange: function () { eqFiltro.t = this.value; eqFiltro.max = 60; desenhar(); } }, h('option', { value: '' }, 'Todos os tipos'), I.tipos().map(function (t) { return h('option', { value: t }, t); }));
+    selTp.value = eqFiltro.t;
+    var barra = h('div', { class: 'card flat' }, h('div', { class: 'row2' }, q, sel), h('div', { class: 'row2' }, selTp));
     add(root, barra, h('div', { class: 'card' }, cont, lista));
     function desenhar() {
       lista.textContent = '';
       var n = I.norm(eqFiltro.q), tx = I.semAcento(eqFiltro.q);
       var itens = S.equipamentos.filter(function (e) {
         if (eqFiltro.c && e.carrinho !== eqFiltro.c) return false;
+        if (eqFiltro.t && I.tipoDe(e) !== eqFiltro.t) return false;
         if (!eqFiltro.q) return true;
         return (n && I.norm(e.sn).indexOf(n) >= 0) || (n && I.norm(e.patrimonio) === n) || I.semAcento(e.modelo).indexOf(tx) >= 0;
       }).sort(function (a, b) { return I.nomeCarrinho(a.carrinho).localeCompare(I.nomeCarrinho(b.carrinho), 'pt-BR') || (parseInt(a.numero, 10) || 0) - (parseInt(b.numero, 10) || 0); });
@@ -323,7 +441,7 @@
             add(lista, h('button', { class: 'item', type: 'button', onclick: function () {
               abrirDlg([dlgTopo(it.sn), h('div', { class: 'note n-info' }, h('p', 'Este N/S está no sistema, mas você ainda não o cadastrou.')),
                 h('dl', { class: 'kv' }, h('dt', 'Modelo'), h('dd', it.modelo || '—'), h('dt', 'Local'), h('dd', it.local || '—'), h('dt', 'Situação'), h('dd', it.situacao || '—')),
-                h('div', { class: 'btns' }, h('button', { class: 'btn pri', onclick: function () { fecharDlg(); cad = novoForm(); cad.sn = it.sn; cad.modelo = I.modeloPara(it.sn) || it.modelo || ''; var c = I.S.carrinhos.filter(function (k) { return k.localSistema === it.local; })[0]; if (c) { cad.carrinho = c.id; cad.numero = String(I.proximoNumero(c.id)); } ir('cadastrar'); } }, 'Cadastrar este'))]);
+                h('div', { class: 'btns' }, h('button', { class: 'btn pri', onclick: function () { fecharDlg(); cad = novoForm(); cad.sn = it.sn; cad.modelo = I.modeloPara(it.sn) || it.modelo || ''; var c = I.mapaLocais()[it.local]; if (it.categoria) cad.tipo = it.categoria; if (c) { cad.carrinho = c.id; cad.numero = numSug(c.id); } ir('cadastrar'); } }, 'Cadastrar este'))]);
             } }, h('span', { class: 'main' }, h('span', { class: 'sn' }, it.sn), h('span', { class: 'sub' }, [it.local, it.modelo].filter(Boolean).join(' · '))), h('span', { class: 'badge b-info' }, 'Só no sistema')));
           });
         }
@@ -353,9 +471,17 @@
         chip('Todos', cfFiltro.sit === 'todos', function () { cfFiltro.sit = 'todos'; cfFiltro.max = 40; render(); })),
       h('select', { style: 'max-width:20rem', onchange: function () { cfFiltro.tipo = this.value; cfFiltro.max = 40; render(); } }, h('option', { value: '' }, 'Todos os tipos'),
         Object.keys(tipos).map(function (t) { return h('option', { value: t, selected: cfFiltro.tipo === t }, tipos[t]); })))));
+    var tiposEq = []; todos.forEach(function (c) { var t = I.tipoDeCaso(c); if (tiposEq.indexOf(t) < 0) tiposEq.push(t); });
+    var NG = { '': 'Todos os grupos', sistema: 'Mudar local no sistema', etiqueta: 'Conferir etiqueta', procurar: 'Procurar ou cadastrar' };
+    add(root, h('div', { class: 'card flat' }, h('div', { class: 'chips' }, ['', 'sistema', 'etiqueta', 'procurar'].map(function (g) {
+        return chip(NG[g], cfFiltro.grupo === g, function () { cfFiltro.grupo = g; cfFiltro.max = 40; render(); }); })),
+      tiposEq.length > 1 ? h('select', { style: 'max-width:20rem', onchange: function () { cfFiltro.eqTipo = this.value; cfFiltro.max = 40; render(); } }, h('option', { value: '' }, 'Todos os tipos de equipamento'),
+        tiposEq.map(function (t) { return h('option', { value: t, selected: cfFiltro.eqTipo === t }, t); })) : null));
     var lista = todos.filter(function (c) {
       if (cfFiltro.sit === 'abertos' && c.resolvido) return false;
       if (cfFiltro.sit === 'resolvidos' && !c.resolvido) return false;
+      if (cfFiltro.grupo && I.grupoDeCaso(c.tipo) !== cfFiltro.grupo) return false;
+      if (cfFiltro.eqTipo && I.tipoDeCaso(c) !== cfFiltro.eqTipo) return false;
       return !cfFiltro.tipo || c.tipo === cfFiltro.tipo;
     });
     if (!lista.length) add(root, h('div', { class: 'note n-ok' }, h('b', cfFiltro.sit === 'abertos' ? 'Nada em aberto' : 'Nenhum caso aqui'), h('p', 'Tudo que foi cadastrado confere com o sistema.')));
@@ -372,7 +498,7 @@
     return h('div', { class: 'card caso' + (c.resolvido ? ' res' : '') },
       h('div', { class: 'meta' }, h('span', { class: 'badge ' + (c.resolvido ? 'b-ok' : CORTIPO[c.tipo] || 'b-mut') }, c.resolvido ? 'Resolvido' : c.titulo),
         c.eq ? h('b', c.eq.sn) : (c.sis ? h('b', c.sis.sn) : null),
-        c.eq ? h('span', { class: 'muted' }, I.nomeCarrinho(c.eq.carrinho) + (c.eq.numero ? ', nº ' + c.eq.numero : '')) : null),
+        c.eq ? h('span', { class: 'muted' }, I.nomeCarrinho(c.eq.carrinho) + (c.eq.numero ? ', nº ' + c.eq.numero : '')) : (c.sis && c.sis.local ? h('span', { class: 'muted' }, c.sis.local.trim()) : null)),
       h('p', c.texto), h('div', null, h('div', { class: 'lbl' }, 'O que fazer'), h('p', c.acao)),
       h('div', { class: 'btns', style: 'align-items:center' }, h('label', { style: 'display:flex;gap:8px;align-items:center;font-weight:600;cursor:pointer' }, ck, 'Resolvido'),
         c.eq ? h('button', { class: 'btn sm', onclick: function () { carregarEdicao(c.eq); } }, 'Editar cadastro') : null),
@@ -448,8 +574,7 @@
     var a = abaAtiva();
     if (imp.modo !== 'sistema' || imp.mapa.categoria < 0) { imp.categorias = null; return; }
     var vals = I.valores(a.rows, a.hdrIdx, imp.mapa.categoria);
-    var padrao = vals.filter(function (v) { return /chrome|notebook|laptop|note\b|netbook|tablet/i.test(v.v); });
-    var marcados = (padrao.length ? padrao : vals).map(function (v) { return v.v; });
+    var marcados = vals.map(function (v) { return v.v; });
     imp.categorias = { valores: vals, marcadas: marcados };
   }
   function vImpAssistente() {
@@ -484,7 +609,7 @@
 
     if (sis && imp.categorias) {
       add(card, h('div', null, h('h3', { style: 'margin-bottom:6px' }, 'Quais tipos de equipamento importar'),
-        h('p', { class: 'muted', style: 'font-size:.85rem;margin-bottom:8px' }, 'O sistema lista de tudo (monitores, projetores…). Marque só o que você vai inventariar.'),
+        h('p', { class: 'muted', style: 'font-size:.85rem;margin-bottom:8px' }, 'O sistema lista de tudo (Chromebooks, monitores, óculos…). Desmarque o que você não vai inventariar.'),
         h('div', { class: 'defs' }, imp.categorias.valores.map(function (v) {
           return h('label', null, h('input', { type: 'checkbox', checked: imp.categorias.marcadas.indexOf(v.v) >= 0, onchange: function () {
             var l = imp.categorias.marcadas, i = l.indexOf(v.v); if (this.checked && i < 0) l.push(v.v); if (!this.checked && i >= 0) l.splice(i, 1); } }), v.v + ' (' + v.n + ')');
@@ -517,7 +642,9 @@
       r = I.importarSistema(a.rows, a.hdrIdx, imp.mapa, imp.categorias ? imp.categorias.marcadas : null, imp.arquivo);
       texto = [r.importados + ' equipamentos importados.', r.foraDoTipo ? r.foraDoTipo + ' de outros tipos foram deixados de fora.' : '', r.repetidos ? r.repetidos + ' repetidos ignorados.' : '', r.semSn ? r.semSn + ' linhas sem N/S ignoradas.' : '',
         r.regrasNovas ? 'Sugeri ' + r.regrasNovas + ' regras de modelo (veja em Mais).' : '', r.locaisSugeridos ? 'Liguei ' + r.locaisSugeridos + ' carrinhos aos locais do sistema.' : ''].filter(Boolean);
-      prox = [h('button', { class: 'btn pri', onclick: function () { imp = null; ir('mais'); } }, 'Conferir modelos e carrinhos'), h('button', { class: 'btn', onclick: function () { imp = null; ir('cadastrar'); } }, 'Cadastrar equipamentos')];
+      prox = [h('button', { class: 'btn pri', onclick: function () { imp = null; ir('mais'); } }, 'Conferir modelos e carrinhos'),
+        I.sugerirLocaisNovos().length ? h('button', { class: 'btn', onclick: function () { imp = null; ir('painel'); setTimeout(dlgLocaisNovos, 50); } }, 'Criar locais a partir do sistema') : null,
+        h('button', { class: 'btn', onclick: function () { imp = null; ir('cadastrar'); } }, 'Cadastrar equipamentos')];
     } else {
       var abas = imp.abas.filter(function (x) { return imp.marcadas[x.nome]; });
       if (!abas.length) { toast('Marque pelo menos uma aba.'); return; }
@@ -535,30 +662,36 @@
   /* ---------- MAIS ---------- */
   function vMais() {
     var S = I.S, root = h('div', { class: 'view' });
-    add(root, h('div', null, h('h1', 'Mais'), h('p', { class: 'muted' }, 'Escola, carrinhos, modelos, exportação e backup.')));
+    add(root, h('div', null, h('h1', 'Mais'), h('p', { class: 'muted' }, 'Escola, carrinhos e locais, modelos, exportação e backup.')));
 
     // escola
     add(root, h('div', { class: 'card' }, h('h2', 'Escola'),
       h('label', { class: 'f' }, 'Nome da escola', h('input', { type: 'text', value: S.meta.escola, placeholder: 'Ex.: EMEIEF Nome da Escola', onchange: function () { S.meta.escola = this.value.trim(); I.save(); cabecalho(); toast('Nome salvo.'); } }))));
 
-    // carrinhos
+    // carrinhos e locais
     var locais = I.locaisDoSistema(), ccard = h('div', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', 'Carrinhos e locais'),
       h('div', { class: 'btns' }, temSistema() ? h('button', { class: 'btn sm', onclick: function () { var n = I.sugerirLocaisDosCarrinhos(); I.save(); toast(n ? n + ' ligados automaticamente.' : 'Nada novo para ligar.'); render(); } }, 'Ligar automaticamente') : null,
-        h('button', { class: 'btn sm pri', onclick: function () { novoCarrinhoDlg(function () { render(); }); } }, 'Novo carrinho'))),
-      h('p', { class: 'muted', style: 'font-size:.9rem' }, 'Ligue cada carrinho ao local que o sistema usa para ele. Assim o aplicativo avisa quando o local no sistema está diferente.'));
-    if (!S.carrinhos.length) add(ccard, h('p', { class: 'muted' }, 'Nenhum carrinho ainda. Eles são criados ao cadastrar ou importar.'));
+        temSistema() ? h('button', { class: 'btn sm', onclick: dlgLocaisNovos }, 'Criar a partir do sistema') : null,
+        h('button', { class: 'btn sm pri', onclick: function () { novoCarrinhoDlg(function () { render(); }); } }, 'Novo'))),
+      h('p', { class: 'muted', style: 'font-size:.9rem' }, 'Carrinhos são equipamentos numerados. Locais fixos são salas, laboratório, secretaria… Ligue cada um ao nome que o sistema usa. Um local pode juntar vários nomes do sistema (por exemplo, os mini PCs e os monitores do laboratório).'));
+    if (!S.carrinhos.length) add(ccard, h('p', { class: 'muted' }, 'Nenhum carrinho ou local ainda. Eles são criados ao cadastrar ou importar.'));
     S.carrinhos.forEach(function (c) {
-      var n = S.equipamentos.filter(function (e) { return e.carrinho === c.id; }).length;
-      var sel = h('select', { onchange: function () { c.localSistema = this.value; I.invalidarCasos(); I.save(); cabecalho(); } }, h('option', { value: '' }, temSistema() ? 'Sem ligação com o sistema' : 'Importe a lista do sistema'),
-        locais.map(function (l) { return h('option', { value: l.nome, selected: c.localSistema === l.nome }, l.nome + ' (' + l.n + ')'); }));
+      var n = S.equipamentos.filter(function (e) { return e.carrinho === c.id; }).length, lig = I.locaisDe(c);
+      var lista = h('div', { class: 'sel-local' }, locais.map(function (l) {
+        return h('label', null, h('input', { type: 'checkbox', checked: lig.indexOf(l.nome) >= 0, onchange: function () {
+          var i = c.locaisSis.indexOf(l.nome); if (this.checked && i < 0) c.locaisSis.push(l.nome); if (!this.checked && i >= 0) c.locaisSis.splice(i, 1);
+          I.invalidarCasos(); I.save(); cabecalho(); resumoSel.textContent = c.locaisSis.length ? 'Ligado a ' + c.locaisSis.length + ' nome(s) do sistema' : 'Sem ligação com o sistema'; } }), h('span', null, l.nome.trim() + ' (' + l.n + ')'));
+      }));
+      var resumoSel = h('summary', { style: 'cursor:pointer;font-weight:600;font-size:.9rem' }, !temSistema() ? 'Importe a lista do sistema para ligar' : (lig.length ? 'Ligado a ' + lig.length + ' nome(s) do sistema' : 'Sem ligação com o sistema'));
       add(ccard, h('div', { class: 'cart' }, h('div', { class: 'row2' },
         h('label', { class: 'f' }, 'Nome (' + n + ' equipamentos)', h('input', { type: 'text', value: c.nome, onchange: function () { if (this.value.trim()) { c.nome = this.value.trim(); I.save(); } } })),
-        h('label', { class: 'f' }, 'Local no sistema', sel)),
+        h('label', { class: 'f' }, 'O que é', h('select', { onchange: function () { c.tipo = this.value; I.save(); render(); } }, h('option', { value: 'carrinho', selected: (c.tipo || 'carrinho') === 'carrinho' }, 'Carrinho'), h('option', { value: 'local', selected: c.tipo === 'local' }, 'Local fixo')))),
+        temSistema() ? h('details', null, resumoSel, lista) : h('p', { class: 'muted', style: 'font-size:.88rem' }, 'Importe a lista do sistema para ligar.'),
         h('div', { class: 'btns' }, h('button', { class: 'btn sm bad', onclick: function () {
-          if (n && !confirm('Este carrinho tem ' + n + ' equipamentos. Eles ficarão sem carrinho. Apagar mesmo?')) return;
+          if (n && !confirm('Este carrinho ou local tem ' + n + ' equipamentos. Eles ficarão sem carrinho. Apagar mesmo?')) return;
           S.equipamentos.forEach(function (e) { if (e.carrinho === c.id) e.carrinho = ''; });
           S.carrinhos = S.carrinhos.filter(function (x) { return x.id !== c.id; }); I.invalidarCasos(); I.save(); render();
-        } }, 'Apagar carrinho'))));
+        } }, 'Apagar'))));
     });
     add(root, ccard);
 
