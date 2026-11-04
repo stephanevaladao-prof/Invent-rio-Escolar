@@ -32,13 +32,15 @@
   </header>
 
   <h1>Como usar</h1>
-  <p class="muted">Um caderno digital para cadastrar e conferir os equipamentos da sua escola (Chromebooks, notebooks, tablets…), comparando com a lista do sistema da Secretaria.</p>
+  <p class="muted">Um caderno digital para cadastrar e conferir os equipamentos da sua escola (Chromebooks, monitores, mini PCs, óculos de realidade virtual…), comparando com a lista do sistema da Secretaria.</p>
 
   <nav class="toc" aria-label="Índice">
     <a href="#o-que">O que é</a>
     <a href="#privacidade">Seus dados</a>
     <a href="#comecar">Primeiros passos</a>
     <a href="#cadastrar">Cadastrar</a>
+    <a href="#tipos">Tipos e locais</a>
+    <a href="#painel">O painel</a>
     <a href="#conferir">Conferir</a>
     <a href="#planilha">Usar minha planilha</a>
     <a href="#backup">Backup e outros aparelhos</a>
@@ -61,9 +63,9 @@
   <section class="card" id="comecar">
     <h2>Primeiros passos</h2>
     <div class="steps">
-      <div class="step"><div><b>Importe a lista do sistema</b><span class="muted">Aba <b>Importar</b> → “Lista do sistema”. Escolha o arquivo de exportação (.xlsx ou .csv). O aplicativo reconhece as colunas sozinho; confira e confirme. Se a lista tiver monitores, projetores etc., deixe marcadas só as categorias de computadores.</span></div></div>
+      <div class="step"><div><b>Importe a lista do sistema</b><span class="muted">Aba <b>Importar</b> → “Lista do sistema”. Escolha o arquivo de exportação (.xlsx ou .csv). O aplicativo reconhece as colunas sozinho; confira e confirme. Todos os tipos de equipamento vêm marcados. Desmarque o que você não vai inventariar.</span></div></div>
       <div class="step"><div><b>Dê um nome à escola</b><span class="muted">Aba <b>Mais</b> → Escola. O nome aparece no topo e nas planilhas exportadas.</span></div></div>
-      <div class="step"><div><b>Crie os carrinhos ou locais</b><span class="muted">Você pode criar na hora, ao cadastrar (“+ Novo carrinho…”). Na aba <b>Mais</b> → Carrinhos, associe cada carrinho ao nome do local no sistema, para o aplicativo saber quando um equipamento está em local diferente.</span></div></div>
+      <div class="step"><div><b>Crie os carrinhos e locais</b><span class="muted">Você pode criar na hora, ao cadastrar (“+ Novo carrinho ou local…”). Na aba <b>Mais</b> → <b>Criar a partir do sistema</b>, o aplicativo sugere os locais que o sistema usa (Laboratório, Secretaria…). Cada um é ligado ao nome do sistema, para o aplicativo saber quando um equipamento está em local diferente.</span></div></div>
       <div class="step"><div><b>(Opcional) Regras de modelo</b><span class="muted">Se os números de série começam sempre do mesmo jeito para cada modelo, cadastre isso em <b>Mais</b> → Regras de modelo. O modelo passa a ser preenchido sozinho. O aplicativo já sugere regras a partir da lista do sistema.</span></div></div>
       <div class="step"><div><b>Cadastre os equipamentos</b><span class="muted">Veja a próxima seção.</span></div></div>
     </div>
@@ -74,12 +76,35 @@
     <ol>
       <li>Aba <b>Cadastrar</b>. Digite o N/S, ou toque no botão da câmera para ler o código de barras (funciona em navegadores que oferecem leitura de código; se o botão não aparecer, digite).</li>
       <li>Logo abaixo aparece o resultado da conferência: <b>está no sistema</b>, <b>provável erro de digitação</b> (com o N/S parecido sugerido), <b>não encontrado</b> ou <b>já cadastrado</b>.</li>
-      <li>Escolha o carrinho ou local. O número do computador é sugerido (o próximo livre), mas você pode mudar.</li>
+      <li>Confira o <b>tipo de equipamento</b> (o aplicativo preenche sozinho quando o N/S está no sistema) e escolha o carrinho ou local. Em carrinhos, o número do computador é sugerido (o próximo livre), mas você pode mudar.</li>
+      <li>Se o N/S estiver ilegível (comum em monitores, por exemplo), marque <b>Não consegui ler o N/S</b>. O equipamento é cadastrado com patrimônio e modelo e entra na contagem do local, mas não é conferido pelo número.</li>
       <li>Patrimônio e modelo são opcionais; se o sistema souber, o aplicativo preenche.</li>
       <li>Em <b>Defeitos e observações</b>, marque o que for preciso (tela quebrada, não liga, teclado…) e escreva o que quiser. Equipamentos com defeito grave contam como “fora de uso”.</li>
       <li><b>Salvar e próximo</b> deixa o formulário pronto para o seguinte.</li>
     </ol>
     <p class="muted">Dica: confira o N/S na etiqueta do aparelho. Letras e zeros parecidos (O/0, I/1, S/5) são os erros mais comuns.</p>
+  </section>
+
+  <section class="card" id="tipos">
+    <h2>Tipos de equipamento e locais</h2>
+    <p>O aplicativo não serve só para Chromebooks. Cada equipamento tem um <b>tipo</b> (Chromebook, Desktop, Monitor, Óculos de Realidade Virtual, Assistente Virtual, ou outro que apareça no sistema) e fica em um <b>carrinho</b> ou em um <b>local fixo</b>.</p>
+    <ul>
+      <li><b>Carrinho</b>: equipamentos numerados, como os carrinhos de Chromebooks.</li>
+      <li><b>Local fixo</b>: sala, laboratório, secretaria, sala do servidor, sala cofre… Um local pode juntar vários nomes do sistema, por exemplo os mini PCs e os monitores do mesmo laboratório.</li>
+    </ul>
+    <p>Para ligar um carrinho ou local ao sistema, vá em <b>Mais</b> → <b>Carrinhos e locais</b> e marque quais nomes do sistema pertencem a ele.</p>
+    <div class="note n-info"><b>Onde achar o N/S</b><p>Normalmente é uma etiqueta na parte de trás ou embaixo do aparelho, com “S/N”. Em monitores, perto das entradas ou sob a base. Em Echo/Alexa, embaixo do aparelho ou no app Alexa. Em óculos Quest, na etiqueta do visor, na caixa ou no app Meta Horizon. Varia conforme o modelo.</p></div>
+  </section>
+
+  <section class="card" id="painel">
+    <h2>O painel</h2>
+    <p>A primeira tela resume tudo: quantos equipamentos foram cadastrados em relação ao que o sistema tem, quantos conferem, as divergências para resolver e o que ainda falta cadastrar.</p>
+    <ul>
+      <li><b>Por tipo de equipamento:</b> toque em um tipo para filtrar todo o painel.</li>
+      <li><b>Gráficos por carrinho e local:</b> o que o sistema diz de cada um e o estado de uso.</li>
+      <li><b>Plano de resolução:</b> três grupos (mudar local no sistema, conferir etiqueta, procurar ou cadastrar). Toque para ver os casos.</li>
+      <li><b>Contagem por carrinho, local e tipo:</b> quantos o sistema diz que existem × quantos você cadastrou. É a forma de conferir o que não tem N/S legível.</li>
+    </ul>
   </section>
 
   <section class="card" id="conferir">
@@ -89,7 +114,7 @@
       <li><b>Provável erro de digitação</b>: seu N/S é muito parecido com um do sistema que ninguém cadastrou. Confira a etiqueta.</li>
       <li><b>Não encontrado no sistema</b>: o equipamento existe, mas o sistema não conhece. É candidato a ser cadastrado lá.</li>
       <li><b>Local diferente</b>: o sistema diz que está em outro lugar.</li>
-      <li><b>A procurar</b>: está no sistema, em local da sua escola, mas você não cadastrou.</li>
+      <li><b>A procurar</b>: está no sistema, em um carrinho ou local seu, mas você ainda não cadastrou. Enquanto você não cadastra tudo, esse grupo mostra o que falta.</li>
       <li><b>Registro único / duplicado</b>: o mesmo número aparece em mais de um lugar.</li>
     </ul>
     <p>Quando resolver um caso (achou o equipamento, corrigiu o número…), marque como <b>resolvido</b> e, se quiser, escreva uma observação. Ela sai na planilha exportada.</p>
@@ -124,7 +149,8 @@
     <h2>Exportar planilha</h2>
     <p>Em <b>Mais</b> → <b>Exportar para planilha</b> → <b>Baixar planilha</b> você baixa um arquivo Excel com as abas:</p>
     <ul>
-      <li><b>Resumo</b>: totais, usáveis, fora de uso, por carrinho.</li>
+      <li><b>Resumo</b>: totais, usáveis, fora de uso, por tipo e por carrinho ou local.</li>
+      <li><b>Quantidades</b>: o que o sistema diz × o que você cadastrou, por local e tipo.</li>
       <li><b>Equipamentos</b>: tudo que foi cadastrado.</li>
       <li><b>Conferência</b>: resultado da comparação com o sistema.</li>
       <li><b>Atualizar no sistema</b>: o que precisa ser ajustado lá (cadastrar, corrigir local, corrigir N/S).</li>
