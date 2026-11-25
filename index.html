@@ -47,7 +47,8 @@
 
 <div class="scan" id="scan" hidden role="dialog" aria-modal="true" aria-label="Leitor de código de barras">
   <video id="video" playsinline muted></video>
-  <div class="scan-bar"><span id="scan-msg">Aponte a câmera para o código de barras da etiqueta.</span><button type="button" class="btn pri" id="scan-close">Fechar</button></div>
+  <div class="scan-guia" aria-hidden="true"></div>
+  <div class="scan-bar"><span id="scan-msg">Aponte a câmera para o código de barras da etiqueta.</span><div class="scan-tools" id="scan-tools"></div><button type="button" class="btn pri" id="scan-close">Fechar</button></div>
 </div>
 
 <script src="xlsx.full.min.js"></script>

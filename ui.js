@@ -61,21 +61,173 @@
   function temSistema() { return I.S.sistema.itens.length > 0; }
 
   /* ---------- leitor de código de barras ---------- */
-  var stream = null, rodando = false;
-  function fecharScan() { rodando = false; if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; } $('#scan').hidden = true; }
-  function suportaScan() { return 'BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia; }
+  var stream = null, rodando = false, trilha = null, bd = null, zxReader = null, zxCarregando = null;
+  var FORMATOS = ['code_128', 'code_39', 'code_93', 'codabar', 'ean_13', 'ean_8', 'itf', 'upc_a', 'upc_e', 'data_matrix', 'qr_code'];
+  function fecharScan() { rodando = false; if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; } trilha = null; $('#scan').hidden = true; }
+  function suportaScan() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+
+  function carregarZX() {
+    if (window.ZXing) return Promise.resolve(true);
+    if (zxCarregando) return zxCarregando;
+    zxCarregando = new Promise(function (ok) {
+      var sc = document.createElement('script'); sc.src = 'zxing.min.js';
+      sc.onload = function () { ok(!!window.ZXing); }; sc.onerror = function () { ok(false); };
+      document.head.appendChild(sc);
+    });
+    return zxCarregando;
+  }
+  function criarZX(so128) {
+    var chave = so128 ? 'zx128' : 'zxAll';
+    if (criarZX[chave]) return criarZX[chave];
+    var Z = window.ZXing, hints = new Map(), BF = Z.BarcodeFormat;
+    hints.set(Z.DecodeHintType.TRY_HARDER, true);
+    hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, so128 ? [BF.CODE_128] : [BF.CODE_128, BF.CODE_39, BF.CODE_93, BF.CODABAR, BF.EAN_13, BF.EAN_8, BF.ITF, BF.UPC_A, BF.UPC_E, BF.DATA_MATRIX, BF.QR_CODE]);
+    var r = new Z.MultiFormatReader(); r.setHints(hints);
+    criarZX[chave] = r; return r;
+  }
+  function decodificarZX(cv) {
+    if (!window.ZXing) return null;
+    var Z = window.ZXing;
+    try {
+      var src = new Z.HTMLCanvasElementLuminanceSource(cv), srcInv = src.invert();
+      var combos = [[false, src], [false, srcInv], [true, src], [true, srcInv]];
+      for (var i = 0; i < combos.length; i++) {
+        try { return criarZX(combos[i][0]).decodeWithState(new Z.BinaryBitmap(new Z.HybridBinarizer(combos[i][1]))).getText(); } catch (e) { /* tenta a próxima */ }
+      }
+    } catch (e) { /* sem leitura */ }
+    return null;
+  }
+  function criarBD() {
+    if (bd !== null) return bd;
+    bd = false;
+    try { if ('BarcodeDetector' in window) bd = new BarcodeDetector(); } catch (e) { bd = false; }
+    return bd;
+  }
+  /* tenta ler uma imagem/quadro (canvas). Devolve Promise com o texto ou null */
+  function lerCanvas(cv) {
+    var d = criarBD(), p = d ? d.detect(cv).then(function (c) { return c && c.length ? c[0].rawValue : null; }).catch(function () { return null; }) : Promise.resolve(null);
+    return p.then(function (v) { v = normalizarLido(v || decodificarZX(cv)); return plausivel(v) ? v : null; });
+  }
+  function recorte(src, sw, sh, fx, fy, fw, fh, escala) {
+    var cv = document.createElement('canvas');
+    var w = Math.round(sw * fw), h = Math.round(sh * fh);
+    cv.width = Math.round(w * escala); cv.height = Math.round(h * escala);
+    var c = cv.getContext('2d', { willReadFrequently: true });
+    c.imageSmoothingEnabled = true;
+    c.drawImage(src, Math.round(sw * fx), Math.round(sh * fy), w, h, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+  function inclinar(cv, graus) {
+    if (!graus) return cv;
+    var o = document.createElement('canvas'), r = graus * Math.PI / 180, W = cv.width, H = cv.height;
+    o.width = Math.ceil(Math.abs(W * Math.cos(r)) + Math.abs(H * Math.sin(r))); o.height = Math.ceil(Math.abs(W * Math.sin(r)) + Math.abs(H * Math.cos(r)));
+    var c = o.getContext('2d', { willReadFrequently: true }), px = cv.getContext('2d').getImageData(0, 0, 1, 1).data;
+    c.fillStyle = 'rgb(' + px[0] + ',' + px[1] + ',' + px[2] + ')'; c.fillRect(0, 0, o.width, o.height);
+    c.translate(o.width / 2, o.height / 2); c.rotate(r); c.drawImage(cv, -W / 2, -H / 2);
+    return o;
+  }
+  function girar(cv) {
+    var o = document.createElement('canvas'); o.width = cv.height; o.height = cv.width;
+    var c = o.getContext('2d', { willReadFrequently: true }); c.translate(o.width, 0); c.rotate(Math.PI / 2); c.drawImage(cv, 0, 0);
+    return o;
+  }
+  /* descarta leituras de lixo: patrimônio (4 a 8 dígitos) ou N/S (8+ caracteres com letras e números) */
+  function plausivel(v) {
+    v = String(v || '').replace(/[.\s-]/g, '');
+    if (/^\d{4,8}$/.test(v)) return true;
+    return v.length >= 8 && v.length <= 30 && /[0-9]/.test(v) && /[A-Za-z]/.test(v);
+  }
+  function normalizarLido(v) { return String(v || '').replace(/[\r\n\s]+/g, ' ').trim(); }
+
   function abrirScan(cb) {
-    var det; try { det = new BarcodeDetector(); } catch (e) { return; }
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function (s) {
-      stream = s; rodando = true;
-      var v = $('#video'); v.srcObject = s; v.play(); $('#scan').hidden = false;
+    var msg = $('#scan-msg'), v = $('#video');
+    msg.textContent = 'Abrindo a câmera...';
+    $('#scan-tools').innerHTML = '';
+    carregarZX();
+    var restr = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
+    navigator.mediaDevices.getUserMedia(restr).then(function (s) {
+      stream = s; rodando = true; trilha = s.getVideoTracks()[0];
+      v.srcObject = s; v.play(); $('#scan').hidden = false;
+      msg.textContent = 'Deixe o código na faixa, na horizontal, a uns 15 a 20 cm. Precisa de boa luz.';
+      ferramentas(cb);
+      var n = 0, lendo = false;
       (function volta() {
         if (!rodando) return;
-        det.detect(v).then(function (codes) {
-          if (codes && codes.length) { var val = codes[0].rawValue; fecharScan(); cb(val); } else setTimeout(volta, 250);
-        }).catch(function () { setTimeout(volta, 400); });
+        if (lendo || !v.videoWidth) { setTimeout(volta, 150); return; }
+        lendo = true; n++;
+        var W = v.videoWidth, H = v.videoHeight, alvo, k = n % 7;
+        /* alterna faixa central, quadro todo, faixa ampliada e pequenas inclinações */
+        if (k === 1) alvo = recorte(v, W, H, 0.05, 0.3, 0.9, 0.4, 1);
+        else if (k === 2) alvo = recorte(v, W, H, 0, 0, 1, 1, 1);
+        else if (k === 3) alvo = recorte(v, W, H, 0.15, 0.35, 0.7, 0.3, 1.6);
+        else if (k === 4) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), -6);
+        else if (k === 5) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), 6);
+        else if (k === 6) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), -12);
+        else alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), 12);
+        lerCanvas(alvo).then(function (val) {
+          lendo = false;
+          val = normalizarLido(val);
+          if (val) { fecharScan(); cb(val); } else setTimeout(volta, 120);
+        });
       })();
-    }).catch(function () { toast('Não consegui abrir a câmera. Confira a permissão do navegador.'); });
+    }).catch(function (e) {
+      var negou = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      toast(negou ? 'A câmera está bloqueada. Permita o uso da câmera nas configurações do navegador, ou use o botão Foto.' : 'Não consegui abrir a câmera. Use o botão Foto ou digite o N/S.');
+    });
+  }
+  function ferramentas(cb) {
+    var box = $('#scan-tools'); box.innerHTML = '';
+    var cap = {}; try { cap = trilha.getCapabilities ? trilha.getCapabilities() : {}; } catch (e) { cap = {}; }
+    try {
+      if (cap.focusMode && cap.focusMode.indexOf('continuous') >= 0) trilha.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {});
+    } catch (e) { /* sem controle de foco */ }
+    if (cap.zoom && cap.zoom.max > cap.zoom.min) {
+      var z = h('input', { type: 'range', min: cap.zoom.min, max: cap.zoom.max, step: cap.zoom.step || 0.1, value: cap.zoom.min, 'aria-label': 'Zoom', class: 'scan-zoom' });
+      z.addEventListener('input', function () { try { trilha.applyConstraints({ advanced: [{ zoom: Number(z.value) }] }); } catch (e) { /* ignora */ } });
+      box.appendChild(h('label', { class: 'scan-lbl' }, 'Zoom ', z));
+    }
+    if (cap.torch) {
+      var lig = false;
+      box.appendChild(h('button', { type: 'button', class: 'btn', onclick: function () { lig = !lig; try { trilha.applyConstraints({ advanced: [{ torch: lig }] }); } catch (e) { /* ignora */ } } }, 'Lanterna'));
+    }
+    box.appendChild(h('button', { type: 'button', class: 'btn', onclick: function () { fecharScan(); escolherFoto(cb); } }, 'Tirar foto'));
+  }
+  /* leitura a partir de uma foto: a câmera nativa foca melhor que o vídeo ao vivo */
+  function escolherFoto(cb) {
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'environment');
+    inp.addEventListener('change', function () {
+      var f = inp.files && inp.files[0]; if (!f) return;
+      toast('Lendo a foto...');
+      carregarZX().then(function () { return lerFoto(f); }).then(function (val) {
+        val = normalizarLido(val);
+        if (val) cb(val); else toast('Não consegui ler o código nessa foto. Chegue mais perto, com boa luz e o código reto, ou digite o N/S.');
+      });
+    });
+    inp.click();
+  }
+  function lerFoto(file) {
+    return new Promise(function (ok) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        var W = img.naturalWidth, H = img.naturalHeight, m = Math.max(W, H), esc = m > 2600 ? 2600 / m : 1;
+        var base = recorte(img, W, H, 0, 0, 1, 1, esc);
+        /* quadro todo, centro e faixas horizontais (o código costuma ser uma faixa pequena dentro da foto) */
+        var tent = [], faixas = [[0, 0, 1, 1], [0.1, 0.25, 0.8, 0.5]];
+        for (var y = 0.15; y <= 0.75; y += 0.1) { faixas.push([0.15, y, 0.7, 0.2]); faixas.push([0, y, 1, 0.2]); }
+        [0, -6, 6, -12, 12].forEach(function (g) {
+          faixas.forEach(function (f) { var c = recorte(img, W, H, f[0], f[1], f[2], f[3], esc * (f[2] * f[3] < 0.3 ? 0.6 : 1)); tent.push({ c: c, g: g }); });
+        });
+        var b90 = girar(base); tent.push({ c: b90, g: 0 }); tent.push({ c: girar(recorte(img, W, H, 0.1, 0.25, 0.8, 0.5, esc)), g: 0 });
+        var i = 0, t0 = Date.now();
+        (function prox() {
+          if (i >= tent.length || Date.now() - t0 > 12000) return ok(null); /* no máximo ~12 s */
+          var t = tent[i++]; lerCanvas(inclinar(t.c, t.g)).then(function (v) { if (v) ok(v); else setTimeout(prox, 0); });
+        })();
+      };
+      img.onerror = function () { ok(null); };
+      img.src = url;
+    });
   }
   $('#scan-close').addEventListener('click', fecharScan);
 
@@ -303,8 +455,20 @@
     var ckSem = h('label', { class: 'inl-check' }, h('input', { type: 'checkbox', checked: cad.semSn, onchange: function () {
       cad.semSn = this.checked; inSn.disabled = this.checked; if (this.checked) { cad.sn = ''; inSn.value = ''; } mostrarAviso(); } }), 'Não consegui ler o N/S (conta só por quantidade)');
     inSn.disabled = cad.semSn;
+    function aoLer(v) {
+      var t = String(v || '').trim(), dig = t.replace(/[.\s-]/g, '');
+      if (/^\d{4,8}$/.test(dig)) { /* só números: é o patrimônio da prefeitura, não o N/S */
+        cad.patrimonio = dig; inPat.value = dig;
+        var ja = S.equipamentos.filter(function (e) { return e.patrimonio && String(e.patrimonio).replace(/\D/g, '') === dig; })[0];
+        var sis = S.sistema.itens.filter(function (i) { return i.patrimonio && String(i.patrimonio).replace(/\D/g, '') === dig; })[0];
+        var achado = (ja && ja.sn) || (sis && sis.sn);
+        if (achado && !I.txt(cad.sn)) { cad.sn = achado; inSn.value = achado; mostrarAviso(); toast('Patrimônio ' + dig + ' encontrado. N/S: ' + achado); return; }
+        toast('Li o patrimônio ' + dig + ' e já preenchi. O N/S é o texto "S/N" da etiqueta do fabricante: digite.'); inSn.focus(); return;
+      }
+      cad.sn = t; inSn.value = t; mostrarAviso();
+    }
     var linhaSn = h('div', { class: 'row-inl' }, inSn,
-      suportaScan() ? h('button', { type: 'button', class: 'btn', title: 'Ler código de barras', onclick: function () { abrirScan(function (v) { cad.sn = v; inSn.value = v; mostrarAviso(); }); } }, 'Câmera') : null);
+      h('button', { type: 'button', class: 'btn', title: 'Ler código de barras', onclick: function () { if (suportaScan()) abrirScan(aoLer); else escolherFoto(aoLer); } }, 'Câmera'));
 
     inPat = h('input', { type: 'text', inputmode: 'numeric', value: cad.patrimonio, placeholder: 'Ex.: 382780', oninput: function () { cad.patrimonio = this.value; } });
     selC = h('select', { onchange: function () {
