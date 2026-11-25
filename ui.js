@@ -81,32 +81,58 @@
     if (criarZX[chave]) return criarZX[chave];
     var Z = window.ZXing, hints = new Map(), BF = Z.BarcodeFormat;
     hints.set(Z.DecodeHintType.TRY_HARDER, true);
-    hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, so128 ? [BF.CODE_128] : [BF.CODE_128, BF.CODE_39, BF.CODE_93, BF.CODABAR, BF.EAN_13, BF.EAN_8, BF.ITF, BF.UPC_A, BF.UPC_E, BF.DATA_MATRIX, BF.QR_CODE]);
+    hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, so128 ? [BF.CODE_128] : [BF.CODE_128, BF.CODE_39, BF.CODE_93, BF.DATA_MATRIX, BF.QR_CODE]);
     var r = new Z.MultiFormatReader(); r.setHints(hints);
     criarZX[chave] = r; return r;
   }
+  /* etiqueta branca sobre carcaça preta confunde o leitor: separa "claro" de "escuro" com um limiar único (Otsu) */
+  function binarizar(cv) {
+    var c = cv.getContext('2d'), w = cv.width, hh = cv.height, im = c.getImageData(0, 0, w, hh), d = im.data, n = w * hh, hist = new Array(256), i, t;
+    for (i = 0; i < 256; i++) hist[i] = 0;
+    for (i = 0; i < n; i++) { t = (d[i * 4] * 299 + d[i * 4 + 1] * 587 + d[i * 4 + 2] * 114) / 1000 | 0; hist[t]++; }
+    var soma = 0; for (i = 0; i < 256; i++) soma += i * hist[i];
+    var somaB = 0, wB = 0, melhor = 0, limiar = 127;
+    for (i = 0; i < 256; i++) {
+      wB += hist[i]; if (!wB) continue; var wF = n - wB; if (!wF) break;
+      somaB += i * hist[i]; var mB = somaB / wB, mF = (soma - somaB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+      if (v > melhor) { melhor = v; limiar = i; }
+    }
+    var o = document.createElement('canvas'); o.width = w; o.height = hh;
+    var oc = o.getContext('2d', { willReadFrequently: true }), oi = oc.createImageData(w, hh), od = oi.data;
+    for (i = 0; i < n; i++) { t = (d[i * 4] * 299 + d[i * 4 + 1] * 587 + d[i * 4 + 2] * 114) / 1000 | 0; var vv = t > limiar ? 255 : 0; od[i * 4] = od[i * 4 + 1] = od[i * 4 + 2] = vv; od[i * 4 + 3] = 255; }
+    oc.putImageData(oi, 0, 0);
+    return o;
+  }
+  function tentarZX(cv, completo) {
+    var Z = window.ZXing, src = new Z.HTMLCanvasElementLuminanceSource(cv), srcInv = src.invert();
+    var combos = [[false, src], [false, srcInv], [true, src], [true, srcInv]];
+    if (!completo) combos = [[false, src], [true, src]];
+    for (var i = 0; i < combos.length; i++) {
+      try { return criarZX(combos[i][0]).decodeWithState(new Z.BinaryBitmap(new Z.HybridBinarizer(combos[i][1]))).getText(); } catch (e) { /* tenta a próxima */ }
+    }
+    return null;
+  }
   function decodificarZX(cv) {
     if (!window.ZXing) return null;
-    var Z = window.ZXing;
     try {
-      var src = new Z.HTMLCanvasElementLuminanceSource(cv), srcInv = src.invert();
-      var combos = [[false, src], [false, srcInv], [true, src], [true, srcInv]];
-      for (var i = 0; i < combos.length; i++) {
-        try { return criarZX(combos[i][0]).decodeWithState(new Z.BinaryBitmap(new Z.HybridBinarizer(combos[i][1]))).getText(); } catch (e) { /* tenta a próxima */ }
-      }
-    } catch (e) { /* sem leitura */ }
-    return null;
+      var r = tentarZX(cv, true);
+      if (!r) { var bin = binarizar(cv); r = tentarZX(bin, true); }
+      return r;
+    } catch (e) { return null; }
   }
   function criarBD() {
     if (bd !== null) return bd;
     bd = false;
-    try { if ('BarcodeDetector' in window) bd = new BarcodeDetector(); } catch (e) { bd = false; }
+    try { if ('BarcodeDetector' in window) { try { bd = new BarcodeDetector({ formats: ['code_128', 'code_39', 'code_93', 'qr_code', 'data_matrix'] }); } catch (e2) { bd = new BarcodeDetector(); } } } catch (e) { bd = false; }
     return bd;
   }
-  /* tenta ler uma imagem/quadro (canvas). Devolve Promise com o texto ou null */
+  /* lê uma imagem/quadro (canvas). Devolve Promise com a lista de textos lidos (pode haver mais de um código) */
   function lerCanvas(cv) {
-    var d = criarBD(), p = d ? d.detect(cv).then(function (c) { return c && c.length ? c[0].rawValue : null; }).catch(function () { return null; }) : Promise.resolve(null);
-    return p.then(function (v) { v = normalizarLido(v || decodificarZX(cv)); return plausivel(v) ? v : null; });
+    var d = criarBD(), p = d ? d.detect(cv).then(function (c) { return (c || []).filter(function (x) { return !/^(ean|upc|itf|codabar)/.test(x.format || ''); }).map(function (x) { return x.rawValue; }); }).catch(function () { return []; }) : Promise.resolve([]);
+    return p.then(function (lista) {
+      var z = decodificarZX(cv); if (z) lista = lista.concat([z]);
+      return lista.map(normalizarLido).filter(Boolean);
+    });
   }
   function recorte(src, sw, sh, fx, fy, fw, fh, escala) {
     var cv = document.createElement('canvas');
@@ -131,43 +157,129 @@
     var c = o.getContext('2d', { willReadFrequently: true }); c.translate(o.width, 0); c.rotate(Math.PI / 2); c.drawImage(cv, 0, 0);
     return o;
   }
-  /* descarta leituras de lixo: patrimônio (4 a 8 dígitos) ou N/S (8+ caracteres com letras e números) */
-  function plausivel(v) {
-    v = String(v || '').replace(/[.\s-]/g, '');
-    if (/^\d{4,8}$/.test(v)) return true;
-    return v.length >= 8 && v.length <= 30 && /[0-9]/.test(v) && /[A-Za-z]/.test(v);
+  /* acha as etiquetas claras (retângulos brancos/cinza) no quadro, para ler só dentro delas: a carcaça preta ao redor atrapalha o leitor */
+  function regioesClaras(src, W, H) {
+    try {
+      var sw = 320, sh = Math.max(8, Math.round(H * sw / W)), cv = document.createElement('canvas');
+      cv.width = sw; cv.height = sh;
+      var c = cv.getContext('2d', { willReadFrequently: true }); c.drawImage(src, 0, 0, W, H, 0, 0, sw, sh);
+      var d = c.getImageData(0, 0, sw, sh).data, n = sw * sh, lum = new Uint8Array(n), hist = new Array(256), i, t;
+      for (i = 0; i < 256; i++) hist[i] = 0;
+      for (i = 0; i < n; i++) { t = (d[i * 4] * 299 + d[i * 4 + 1] * 587 + d[i * 4 + 2] * 114) / 1000 | 0; lum[i] = t; hist[t]++; }
+      var soma = 0; for (i = 0; i < 256; i++) soma += i * hist[i];
+      var somaB = 0, wB = 0, melhor = 0, lim = 127;
+      for (i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; var wF = n - wB; if (!wF) break; somaB += i * hist[i]; var mB = somaB / wB, mF = (soma - somaB) / wF, v = wB * wF * (mB - mF) * (mB - mF); if (v > melhor) { melhor = v; lim = i; } }
+      var mk = new Uint8Array(n); for (i = 0; i < n; i++) mk[i] = lum[i] > lim ? 1 : 0;
+      function morfo(m, r, dil) {
+        var tmp = new Uint8Array(n), out = new Uint8Array(n), x, y, k, a;
+        for (y = 0; y < sh; y++) for (x = 0; x < sw; x++) { a = dil ? 0 : 1; for (k = -r; k <= r; k++) { var xx = x + k; if (xx < 0 || xx >= sw) continue; if (dil ? m[y * sw + xx] : !m[y * sw + xx]) { a = dil ? 1 : 0; break; } } tmp[y * sw + x] = a; }
+        for (y = 0; y < sh; y++) for (x = 0; x < sw; x++) { a = dil ? 0 : 1; for (k = -r; k <= r; k++) { var yy = y + k; if (yy < 0 || yy >= sh) continue; if (dil ? tmp[yy * sw + x] : !tmp[yy * sw + x]) { a = dil ? 1 : 0; break; } } out[y * sw + x] = a; }
+        return out;
+      }
+      mk = morfo(morfo(mk, 2, false), 2, true); /* abertura: separa a etiqueta de frisos finos da carcaça */
+      mk = morfo(morfo(mk, 1, true), 1, false); /* fechamento: preenche o texto e as barras */
+      var visto = new Uint8Array(n), pilha = new Int32Array(n), res = [];
+      for (var st = 0; st < n; st++) {
+        if (visto[st] || !mk[st]) continue;
+        var topo = 0, area = 0, x0 = sw, x1 = 0, y0 = sh, y1 = 0;
+        pilha[topo++] = st; visto[st] = 1;
+        while (topo) {
+          var q = pilha[--topo], x = q % sw, y = (q / sw) | 0; area++;
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          if (x > 0 && !visto[q - 1] && mk[q - 1]) { visto[q - 1] = 1; pilha[topo++] = q - 1; }
+          if (x < sw - 1 && !visto[q + 1] && mk[q + 1]) { visto[q + 1] = 1; pilha[topo++] = q + 1; }
+          if (y > 0 && !visto[q - sw] && mk[q - sw]) { visto[q - sw] = 1; pilha[topo++] = q - sw; }
+          if (y < sh - 1 && !visto[q + sw] && mk[q + sw]) { visto[q + sw] = 1; pilha[topo++] = q + sw; }
+        }
+        var bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+        if (area < n * 0.008 || area > n * 0.6 || bw < 12 || bh < 6) continue;
+        if ((x0 <= 1 || y0 <= 1 || x1 >= sw - 2 || y1 >= sh - 2) && area > n * 0.25) continue; /* grande e encostada na borda: mesa, parede */
+        if (area / (bw * bh) < 0.35) continue; /* não parece retângulo */
+        res.push({ area: area, f: [(x0 + 1) / sw, (y0 + 1) / sh, Math.max(0.02, (bw - 2) / sw), Math.max(0.02, (bh - 2) / sh)] }); /* um pouco para dentro: sem a carcaça preta na borda */
+      }
+      /* só etiquetas de tamanho razoável, das menores para as maiores; as grandes também em metades (etiquetas coladas viram uma só) */
+      var bons = res.filter(function (r) { return r.f[2] * r.f[3] <= 0.35; }).sort(function (a, b) { return a.f[2] * a.f[3] - b.f[2] * b.f[3]; }).slice(0, 4), saida = [];
+      bons.forEach(function (r) { var f = r.f; saida.push(f); if (f[3] > 0.2) { saida.push([f[0], f[1], f[2], f[3] * 0.55]); saida.push([f[0], f[1] + f[3] * 0.45, f[2], f[3] * 0.55]); } });
+      return saida;
+    } catch (e) { return []; }
+  }
+  function recorteRegiao(src, W, H, f, maxLado) {
+    var pw = W * f[2], esc = Math.max(0.5, Math.min(2.5, (maxLado || 1000) / Math.max(1, pw)));
+    var c = recorte(src, W, H, f[0], f[1], f[2], f[3], esc), pad = Math.round(0.06 * Math.max(c.width, c.height));
+    var o = document.createElement('canvas'); o.width = c.width + 2 * pad; o.height = c.height + 2 * pad;
+    var x = o.getContext('2d', { willReadFrequently: true }); x.fillStyle = '#fff'; x.fillRect(0, 0, o.width, o.height); x.drawImage(c, pad, pad);
+    return o; /* borda branca = "zona de silêncio" que os leitores de código de barras exigem */
   }
   function normalizarLido(v) { return String(v || '').replace(/[\r\n\s]+/g, ' ').trim(); }
 
+  /* ---- separar o que foi lido: patrimônio (só números, 4 a 8) x N/S (letras e números) ---- */
+  function snConhecido(v) {
+    var n = I.norm(v); if (!n) return false;
+    function bate(x) { var m = I.norm(x); return m === n || (m.length >= 9 && n.indexOf(m) === 0 && n.length - m.length <= 3) || (n.length >= 9 && m.indexOf(n) === 0 && m.length - n.length <= 3); }
+    return I.S.equipamentos.some(function (e) { return e.sn && bate(e.sn); }) || I.S.sistema.itens.some(function (i) { return i.sn && bate(i.sn); });
+  }
+  function classificar(raw) {
+    var t = String(raw || '').trim(), dig = t.replace(/[.\s-]/g, '');
+    if (/^\d{5,7}$/.test(dig)) return { tipo: 'pat', valor: dig };
+    var limpo = t.replace(/\s+/g, '').toUpperCase();
+    if (limpo.length < 8 || limpo.length > 30 || !/[0-9]/.test(limpo) || !/[A-Z]/.test(limpo)) return null;
+    var conhecido = snConhecido(limpo);
+    if (/[-_\/:.]/.test(limpo) && !conhecido) return null; /* modelo (C731-C9DA), endereço de internet etc. */
+    return { tipo: 'sn', valor: limpo, score: conhecido ? 3 : (limpo.length >= 12 ? 2 : 1) };
+  }
+  function novaSessao() { return { pat: '', sn: '', snScore: 0, t1: 0 }; }
+  function registrar(ses, lista) {
+    var novo = false;
+    lista.forEach(function (raw) {
+      var c = classificar(raw); if (!c) return;
+      if (c.tipo === 'pat') { if (!ses.pat) { ses.pat = c.valor; novo = true; } }
+      else if (c.score > ses.snScore) { ses.sn = c.valor; ses.snScore = c.score; novo = true; }
+    });
+    if (novo && !ses.t1) ses.t1 = Date.now();
+    return novo;
+  }
+  function textoSessao(ses) {
+    var partes = [ses.sn ? 'N/S ' + ses.sn : '', ses.pat ? 'patrimônio ' + ses.pat : ''].filter(Boolean);
+    return 'Li ' + partes.join(' e ') + (ses.pat && ses.sn ? '.' : '. Procurando o outro código (ou toque em Concluir)...');
+  }
+
   function abrirScan(cb) {
-    var msg = $('#scan-msg'), v = $('#video');
+    var msg = $('#scan-msg'), v = $('#video'), ses = novaSessao();
     msg.textContent = 'Abrindo a câmera...';
     $('#scan-tools').innerHTML = '';
     carregarZX();
+    function concluir() { var r = { pat: ses.pat, sn: ses.sn }; fecharScan(); cb(r); }
     var restr = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
     navigator.mediaDevices.getUserMedia(restr).then(function (s) {
       stream = s; rodando = true; trilha = s.getVideoTracks()[0];
       v.srcObject = s; v.play(); $('#scan').hidden = false;
-      msg.textContent = 'Deixe o código na faixa, na horizontal, a uns 15 a 20 cm. Precisa de boa luz.';
-      ferramentas(cb);
-      var n = 0, lendo = false;
+      msg.textContent = 'Aponte para o código de barras ou QR da etiqueta (N/S ou patrimônio), a uns 15 a 20 cm, com boa luz. Se houver os dois, tente enquadrar ambos.';
+      ferramentas(cb, ses, concluir);
+      var n = 0, lendo = false, rois = [], ri = 0;
       (function volta() {
         if (!rodando) return;
         if (lendo || !v.videoWidth) { setTimeout(volta, 150); return; }
         lendo = true; n++;
-        var W = v.videoWidth, H = v.videoHeight, alvo, k = n % 7;
-        /* alterna faixa central, quadro todo, faixa ampliada e pequenas inclinações */
-        if (k === 1) alvo = recorte(v, W, H, 0.05, 0.3, 0.9, 0.4, 1);
-        else if (k === 2) alvo = recorte(v, W, H, 0, 0, 1, 1, 1);
-        else if (k === 3) alvo = recorte(v, W, H, 0.15, 0.35, 0.7, 0.3, 1.6);
-        else if (k === 4) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), -6);
-        else if (k === 5) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), 6);
-        else if (k === 6) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), -12);
-        else alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), 12);
-        lerCanvas(alvo).then(function (val) {
+        var W = v.videoWidth, H = v.videoHeight, alvo, k = (n - 1) % 10;
+        /* etiquetas claras primeiro (uma por vez), depois quadro todo, faixas e pequenas inclinações */
+        if (k === 0 || k === 2 || k === 9) {
+          if (!rois.length || n % 30 === 1) { rois = regioesClaras(v, W, H); ri = 0; }
+          if (rois.length) { alvo = recorteRegiao(v, W, H, rois[ri % rois.length]); ri++; if (k === 9) alvo = girar(alvo); }
+          else alvo = recorte(v, W, H, 0, 0, 1, 1, 1);
+        }
+        else if (k === 1) alvo = recorte(v, W, H, 0, 0, 1, 1, 1);
+        else if (k === 3) alvo = recorte(v, W, H, 0, 0, 1, 0.5, 1);
+        else if (k === 4) alvo = recorte(v, W, H, 0, 0.5, 1, 0.5, 1);
+        else if (k === 5) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), -6);
+        else if (k === 6) alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), 6);
+        else if (k === 7) alvo = recorte(v, W, H, 0.15, 0.35, 0.7, 0.3, 1.6);
+        else alvo = inclinar(recorte(v, W, H, 0.05, 0.25, 0.9, 0.5, 1), -12);
+        lerCanvas(alvo).then(function (lista) {
           lendo = false;
-          val = normalizarLido(val);
-          if (val) { fecharScan(); cb(val); } else setTimeout(volta, 120);
+          if (!rodando) return;
+          if (registrar(ses, lista)) msg.textContent = textoSessao(ses);
+          if ((ses.pat && ses.sn) || (ses.t1 && Date.now() - ses.t1 > 3500)) return concluir(); /* dá 3,5 s para achar o segundo código */
+          setTimeout(volta, 120);
         });
       })();
     }).catch(function (e) {
@@ -175,7 +287,7 @@
       toast(negou ? 'A câmera está bloqueada. Permita o uso da câmera nas configurações do navegador, ou use o botão Foto.' : 'Não consegui abrir a câmera. Use o botão Foto ou digite o N/S.');
     });
   }
-  function ferramentas(cb) {
+  function ferramentas(cb, ses, concluir) {
     var box = $('#scan-tools'); box.innerHTML = '';
     var cap = {}; try { cap = trilha.getCapabilities ? trilha.getCapabilities() : {}; } catch (e) { cap = {}; }
     try {
@@ -191,6 +303,7 @@
       box.appendChild(h('button', { type: 'button', class: 'btn', onclick: function () { lig = !lig; try { trilha.applyConstraints({ advanced: [{ torch: lig }] }); } catch (e) { /* ignora */ } } }, 'Lanterna'));
     }
     box.appendChild(h('button', { type: 'button', class: 'btn', onclick: function () { fecharScan(); escolherFoto(cb); } }, 'Tirar foto'));
+    box.appendChild(h('button', { type: 'button', class: 'btn', onclick: function () { if (ses.pat || ses.sn) concluir(); else toast('Ainda não li nenhum código.'); } }, 'Concluir'));
   }
   /* leitura a partir de uma foto: a câmera nativa foca melhor que o vídeo ao vivo */
   function escolherFoto(cb) {
@@ -198,34 +311,37 @@
     inp.addEventListener('change', function () {
       var f = inp.files && inp.files[0]; if (!f) return;
       toast('Lendo a foto...');
-      carregarZX().then(function () { return lerFoto(f); }).then(function (val) {
-        val = normalizarLido(val);
-        if (val) cb(val); else toast('Não consegui ler o código nessa foto. Chegue mais perto, com boa luz e o código reto, ou digite o N/S.');
+      carregarZX().then(function () { return lerFoto(f); }).then(function (ses) {
+        if (ses.pat || ses.sn) cb({ pat: ses.pat, sn: ses.sn }); else toast('Não consegui ler o código nessa foto. Chegue mais perto, com boa luz e o código reto, ou digite o N/S.');
       });
     });
     inp.click();
   }
   function lerFoto(file) {
     return new Promise(function (ok) {
-      var img = new Image(), url = URL.createObjectURL(file);
+      var ses = novaSessao(), img = new Image(), url = URL.createObjectURL(file);
       img.onload = function () {
         URL.revokeObjectURL(url);
         var W = img.naturalWidth, H = img.naturalHeight, m = Math.max(W, H), esc = m > 2600 ? 2600 / m : 1;
         var base = recorte(img, W, H, 0, 0, 1, 1, esc);
         /* quadro todo, centro e faixas horizontais (o código costuma ser uma faixa pequena dentro da foto) */
         var tent = [], faixas = [[0, 0, 1, 1], [0.1, 0.25, 0.8, 0.5]];
-        for (var y = 0.15; y <= 0.75; y += 0.1) { faixas.push([0.15, y, 0.7, 0.2]); faixas.push([0, y, 1, 0.2]); }
-        [0, -6, 6, -12, 12].forEach(function (g) {
+        for (var y = 0.05; y <= 0.8; y += 0.1) { faixas.push([0.15, y, 0.7, 0.2]); faixas.push([0, y, 1, 0.2]); }
+        var regs = regioesClaras(img, W, H).map(function (f) { return recorteRegiao(img, W, H, f, 1400); });
+        regs.forEach(function (c) { tent.push({ c: c, g: 0 }); tent.push({ c: girar(c), g: 0 }); }); /* 1º: dentro de cada etiqueta, em pé e deitada */
+        [0, -6, 6, -12, 12].forEach(function (g, gi) {
           faixas.forEach(function (f) { var c = recorte(img, W, H, f[0], f[1], f[2], f[3], esc * (f[2] * f[3] < 0.3 ? 0.6 : 1)); tent.push({ c: c, g: g }); });
+          if (gi === 1 || gi === 2) regs.forEach(function (c) { tent.push({ c: c, g: g }); });
         });
         var b90 = girar(base); tent.push({ c: b90, g: 0 }); tent.push({ c: girar(recorte(img, W, H, 0.1, 0.25, 0.8, 0.5, esc)), g: 0 });
         var i = 0, t0 = Date.now();
         (function prox() {
-          if (i >= tent.length || Date.now() - t0 > 12000) return ok(null); /* no máximo ~12 s */
-          var t = tent[i++]; lerCanvas(inclinar(t.c, t.g)).then(function (v) { if (v) ok(v); else setTimeout(prox, 0); });
+          var fim = i >= tent.length || (ses.pat && ses.sn) || (ses.t1 ? Date.now() - ses.t1 > 8000 : Date.now() - t0 > 15000);
+          if (fim) return ok(ses); /* para quando achou os dois, ou ~8 s depois do primeiro, ou ~15 s sem achar nada */
+          var t = tent[i++]; lerCanvas(inclinar(t.c, t.g)).then(function (lista) { registrar(ses, lista); setTimeout(prox, 0); });
         })();
       };
-      img.onerror = function () { ok(null); };
+      img.onerror = function () { ok(ses); };
       img.src = url;
     });
   }
@@ -455,17 +571,19 @@
     var ckSem = h('label', { class: 'inl-check' }, h('input', { type: 'checkbox', checked: cad.semSn, onchange: function () {
       cad.semSn = this.checked; inSn.disabled = this.checked; if (this.checked) { cad.sn = ''; inSn.value = ''; } mostrarAviso(); } }), 'Não consegui ler o N/S (conta só por quantidade)');
     inSn.disabled = cad.semSn;
-    function aoLer(v) {
-      var t = String(v || '').trim(), dig = t.replace(/[.\s-]/g, '');
-      if (/^\d{4,8}$/.test(dig)) { /* só números: é o patrimônio da prefeitura, não o N/S */
-        cad.patrimonio = dig; inPat.value = dig;
-        var ja = S.equipamentos.filter(function (e) { return e.patrimonio && String(e.patrimonio).replace(/\D/g, '') === dig; })[0];
-        var sis = S.sistema.itens.filter(function (i) { return i.patrimonio && String(i.patrimonio).replace(/\D/g, '') === dig; })[0];
-        var achado = (ja && ja.sn) || (sis && sis.sn);
-        if (achado && !I.txt(cad.sn)) { cad.sn = achado; inSn.value = achado; mostrarAviso(); toast('Patrimônio ' + dig + ' encontrado. N/S: ' + achado); return; }
-        toast('Li o patrimônio ' + dig + ' e já preenchi. O N/S é o texto "S/N" da etiqueta do fabricante: digite.'); inSn.focus(); return;
-      }
-      cad.sn = t; inSn.value = t; mostrarAviso();
+    function aoLer(res) {
+      if (typeof res === 'string') res = { sn: res, pat: '' };
+      if (res.pat) { cad.patrimonio = res.pat; inPat.value = res.pat; }
+      if (res.sn) { cad.sn = res.sn; inSn.value = res.sn; mostrarAviso(); }
+      if (res.sn && res.pat) { toast('Li o N/S ' + res.sn + ' e o patrimônio ' + res.pat + '.'); return; }
+      if (res.sn) { toast('Li o N/S ' + res.sn + '.'); return; }
+      /* só patrimônio: procura o N/S nos equipamentos ou no sistema que já tem esse patrimônio */
+      var dig = res.pat;
+      var ja = S.equipamentos.filter(function (e) { return e.patrimonio && String(e.patrimonio).replace(/\D/g, '') === dig; })[0];
+      var sis = S.sistema.itens.filter(function (i) { return i.patrimonio && String(i.patrimonio).replace(/\D/g, '') === dig; })[0];
+      var achado = (ja && ja.sn) || (sis && sis.sn);
+      if (achado && !I.txt(cad.sn)) { cad.sn = achado; inSn.value = achado; mostrarAviso(); toast('Patrimônio ' + dig + ' encontrado. N/S: ' + achado); return; }
+      toast('Li só o patrimônio ' + dig + ' e já preenchi. O N/S está no código ou QR da etiqueta do fabricante (ou no texto "S/N"): leia ou digite.'); inSn.focus();
     }
     var linhaSn = h('div', { class: 'row-inl' }, inSn,
       h('button', { type: 'button', class: 'btn', title: 'Ler código de barras', onclick: function () { if (suportaScan()) abrirScan(aoLer); else escolherFoto(aoLer); } }, 'Câmera'));
